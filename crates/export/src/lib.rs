@@ -20,8 +20,9 @@
 //! Overflow and a [`StorageQuota`] hook, files that don't fit go to the overflow folders. A
 //! render log (Errors Only / Plus Settings / Plus Per Frame Info) is written next to the output.
 //!
-//! Frames are rendered in parallel batches (rayon; one batch ≈ one frame per core) and handed to
-//! the encoder in order. Progress is reported after each batch through a callback that can cancel
+//! Native whole-frame jobs use bounded OS workers (up to four for CPU, one for GPU), while Rayon
+//! parallelises their pixel operations. Movie rendering prefetches one ordered batch during
+//! encoding when the output size permits it. Progress is reported after each batch and can cancel
 //! the job by returning `false`. Codecs and the MP4/MOV muxer are FilmCraft's pure-Rust crates
 //! (plan ADR 0001); nothing outside this crate touches them.
 //!
@@ -36,6 +37,8 @@ mod out;
 mod pipeline;
 mod webm;
 mod webm_av1;
+#[cfg(not(target_arch = "wasm32"))]
+mod workers;
 
 use web_time::Instant;
 
@@ -59,6 +62,8 @@ pub enum ExportError {
     Io(String),
     #[error("encode: {0}")]
     Encode(String),
+    #[error("render: {0}")]
+    Render(String),
     #[error("{0}")]
     Unsupported(String),
 }
@@ -267,7 +272,7 @@ async fn sequence(cx: &Cx<'_>, comp: &Comp, w: u32, h: u32, st: &mut State<'_>) 
                 std::io::Write::write_all(&mut f, &data).map_err(io)?;
                 f.finish()
             })
-            .await;
+            .await?;
         for r in written {
             bytes += r?;
         }
@@ -367,7 +372,7 @@ async fn gif_export(job: &Cx<'_>, comp: &Comp, w: u32, h: u32, st: &mut State<'_
                 let mut px = job.pixels(&img, comp, job.output.channels, w, h);
                 gif::Frame::from_rgba_speed(w as u16, h as u16, &mut px, 10)
             })
-            .await;
+            .await?;
         for mut f in frames {
             clock += cs_per_frame;
             let d = (clock.round() as u64).saturating_sub(emitted).max(1);

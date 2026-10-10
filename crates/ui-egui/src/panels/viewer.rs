@@ -629,7 +629,8 @@ pub fn show(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let frame = comp.frame_rate.frame_at(time);
     let key = app.frame_key(cid, frame, scale);
     app.request_frame_urgent(cid, frame, scale);
-    if let Some(img) = app.frames.get(&key) {
+    let ready = if app.playback.playing && app.audio.is_some() { app.frames.get_at_or_before(&key) } else { app.frames.get(&key).map(|img| (key, img)) };
+    if let Some((key, img)) = ready {
         let stale = app.viewer_shown.as_ref().is_none_or(|(_, k)| *k != key);
         if stale {
             show_frame(app, &ctx, key, img);

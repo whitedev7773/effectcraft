@@ -91,7 +91,7 @@ fn weather_and_star_burst() {
 #[test]
 fn bubbles_drizzle_mercury() {
     case("ec.sim.ccbubbles", &[("bubbleAmount", n(60.0)), ("bubbleSize", n(3.0))], 0.5, 0.0);
-    for shading in 1..5 {
+    for shading in 0..5 {
         case(
             "ec.sim.ccbubbles",
             &[("bubbleAmount", n(40.0)), ("bubbleSize", n(4.0)), ("shadingType", e(shading)), ("reflectionType", e(shading % 2))],
@@ -99,6 +99,7 @@ fn bubbles_drizzle_mercury() {
             0.0,
         );
     }
+    case("ec.sim.ccbubbles", &[("bubbleAmount", n(120.0)), ("bubbleSize", n(0.0))], 0.8, 0.0);
     case("ec.sim.ccdrizzle", &[("dripRate", n(12.0)), ("spreading", n(300.0))], 0.6, 0.0);
     case("ec.sim.ccdrizzle", &[("dripRate", n(20.0)), ("shading/diffuse", n(40.0)), ("shading/ambient", n(-20.0)), ("light/lightHeight", n(60.0))], 1.1, 0.0);
     case("ec.sim.ccmrmercury", &[("birthRate", n(4.0)), ("blobBirthSize", n(1.5)), ("blobDeathSize", n(1.0))], 1.0, 0.0);

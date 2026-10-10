@@ -1566,14 +1566,18 @@ pub struct MarksPlan {
     pub composite: bool,
 }
 
-/// [`MarksPlan`] of Audio Spectrum or Audio Waveform on `b`'s geometry (`None` = no audio:
-/// the layer passes through).
+/// [`MarksPlan`] of Audio Spectrum or Audio Waveform on `b`'s geometry. When audio is
+/// unavailable, effects set to render on transparent still clear the source image.
 pub fn marks_plan(id: &str, ctx: &EffectCtx, b: &Buf) -> Option<MarksPlan> {
-    match id {
+    let plan = match id {
         "ec.generate.audiospectrum" => spectrum_plan(ctx, b),
         "ec.generate.audiowaveform" => waveform_plan(ctx, b),
         _ => None,
+    };
+    if plan.is_none() && matches!(id, "ec.generate.audiospectrum" | "ec.generate.audiowaveform") && !ctx.params.b("compositeOnOriginal") {
+        return Some(marks(ctx, Vec::new(), 0.0, 0.0));
     }
+    plan
 }
 
 fn marks(ctx: &EffectCtx, segs: Vec<Seg>, thick: f64, soft: f64) -> MarksPlan {
@@ -1589,14 +1593,14 @@ fn marks(ctx: &EffectCtx, segs: Vec<Seg>, thick: f64, soft: f64) -> MarksPlan {
 }
 
 fn audio_spectrum(ctx: &EffectCtx, mut b: Buf) -> Buf {
-    if let Some(m) = spectrum_plan(ctx, &b) {
+    if let Some(m) = marks_plan("ec.generate.audiospectrum", ctx, &b) {
         draw_marks(&mut b, &m.segs, m.thickness, m.softness, m.inside, m.outside, m.composite);
     }
     b
 }
 
 fn audio_waveform(ctx: &EffectCtx, mut b: Buf) -> Buf {
-    if let Some(m) = waveform_plan(ctx, &b) {
+    if let Some(m) = marks_plan("ec.generate.audiowaveform", ctx, &b) {
         draw_marks(&mut b, &m.segs, m.thickness, m.softness, m.inside, m.outside, m.composite);
     }
     b
@@ -1605,13 +1609,13 @@ fn audio_waveform(ctx: &EffectCtx, mut b: Buf) -> Buf {
 fn spectrum_plan(ctx: &EffectCtx, b: &Buf) -> Option<MarksPlan> {
     let pr = ctx.params;
     let samples = audio_window(ctx, pr.f("audioDuration"), pr.f("audioOffset"), 0)?;
-    let n = samples.len().next_power_of_two().max(64);
+    let n = samples.len().next_power_of_two().saturating_mul(4).clamp(64, 1 << 16);
     let mut re = vec![0.0; n];
     let mut im = vec![0.0; n];
     let m = samples.len();
     for (i, s) in samples.iter().enumerate() {
-        // Hann window.
-        re[i] = s * (0.5 - 0.5 * (2.0 * PI * i as f64 / (m.max(2) - 1) as f64).cos());
+        // Periodic Hamming window. The mono average is taken before the FFT.
+        re[i] = s * (0.54 - 0.46 * (2.0 * PI * i as f64 / m as f64).cos());
     }
     fft(&mut re, &mut im);
     let bands = pr.f("frequencyBands").round().clamp(1.0, 4096.0) as usize;
@@ -1619,8 +1623,14 @@ fn spectrum_plan(ctx: &EffectCtx, b: &Buf) -> Option<MarksPlan> {
     let f1 = pr.f("endFrequency").max(f0 + 1.0);
     let hz_per_bin = AUDIO_RATE as f64 / n as f64;
     let mag = |f: f64| {
-        let k = ((f / hz_per_bin).round() as usize).min(n / 2);
-        (re[k] * re[k] + im[k] * im[k]).sqrt() * 4.0 / m as f64
+        let bin = (f / hz_per_bin).clamp(0.0, (n / 2) as f64);
+        let lo = bin.floor() as usize;
+        let hi = (lo + 1).min(n / 2);
+        let magnitude = |k: usize| {
+            let one_sided = if k == 0 || k == n / 2 { 1.0 } else { 2.0 };
+            (re[k] * re[k] + im[k] * im[k]).sqrt() * one_sided / m as f64
+        };
+        magnitude(lo) + (magnitude(hi) - magnitude(lo)) * (bin - lo as f64)
     };
     let max_h = pr.f("maximumHeight") * b.scale;
     let thick = (pr.f("thickness") * b.scale).max(0.1);
@@ -1632,15 +1642,11 @@ fn spectrum_plan(ctx: &EffectCtx, b: &Buf) -> Option<MarksPlan> {
     let mut segs = Vec::new();
     for i in 0..bands {
         let u = if bands > 1 { i as f64 / (bands - 1) as f64 } else { 0.5 };
-        let fa = f0 * (f1 / f0).powf(i as f64 / bands as f64);
-        let fb = f0 * (f1 / f0).powf((i + 1) as f64 / bands as f64);
-        let mut v = 0.0f64;
-        let k = 4;
-        for j in 0..k {
-            v = v.max(mag(fa + (fb - fa) * j as f64 / k as f64));
-        }
-        let db = (20.0 * v.max(1e-9).log10() + 60.0) / 60.0;
-        let hgt = db.clamp(0.0, 1.0) * max_h;
+        let frequency = f0 + (f1 - f0) * i as f64 / bands as f64;
+        let v = mag(frequency);
+        // Maximum Height is a pixel ceiling for the measured frequency magnitude.
+        // A fixed -60 dB display floor inflated quiet bands into tall blocks.
+        let hgt = v.clamp(0.0, 1.0) * max_h;
         let (q, nrm) = base.at(u);
         let (ua, ub) = match side {
             0 => (0.0, hgt),
@@ -2204,10 +2210,11 @@ mod tests {
     }
 
     #[test]
-    fn audio_effects_without_audio_pass_through() {
+    fn audio_effects_without_audio_respect_composite_mode() {
         let src = Image::filled(16, 16, [0.3, 0.3, 0.3, 1.0]);
         for id in ["ec.generate.audiospectrum", "ec.generate.audiowaveform"] {
-            assert_eq!(run(id, &[], src.clone()).img.data, src.data, "{id}");
+            assert_eq!(run(id, &[], src.clone()).img.data, Image::new(16, 16).data, "{id}");
+            assert_eq!(run(id, &[("compositeOnOriginal", Value::Bool(true))], src.clone()).img.data, src.data, "{id}");
         }
     }
 
@@ -2222,6 +2229,84 @@ mod tests {
             assert_eq!(a.img.data, b.img.data, "{id}");
             assert!(alpha_sum(&a.img, 0, 0, 96, 64) > 10.0, "{id} drew nothing");
         }
+    }
+
+    #[test]
+    fn spectrum_height_tracks_audio_level() {
+        struct Level(f32);
+        impl EffectHost for Level {
+            fn layer(&self, _: u64, _: bool) -> Option<LayerPixels> {
+                None
+            }
+            fn audio(&self, _: u64, start: f64, frames: usize, rate: u32) -> Option<Vec<f32>> {
+                Some(
+                    (0..frames)
+                        .flat_map(|i| {
+                            let sample = (2.0 * PI * 440.0 * (start + i as f64 / rate as f64)).sin() as f32 * self.0;
+                            [sample, sample]
+                        })
+                        .collect(),
+                )
+            }
+        }
+        let params = [
+            ("audioLayer", Value::Layer(Some(1))),
+            ("startPoint", Value::Vec2([0.0, 63.0])),
+            ("endPoint", Value::Vec2([95.0, 63.0])),
+            ("startFrequency", num(400.0)),
+            ("endFrequency", num(500.0)),
+            ("maximumHeight", num(40.0)),
+        ];
+        let loud = Level(0.8);
+        let quiet = Level(0.08);
+        let loud_env = EffectEnv { host: Some(&loud), comp_time: 1.0, ..Default::default() };
+        let quiet_env = EffectEnv { host: Some(&quiet), comp_time: 1.0, ..Default::default() };
+        let img = Image::new(96, 64);
+        let loud_image = run_env("ec.generate.audiospectrum", &params, img.clone(), 1.0, loud_env).img;
+        let quiet_image = run_env("ec.generate.audiospectrum", &params, img, 1.0, quiet_env).img;
+        let loud_area = alpha_sum(&loud_image, 0, 0, 96, 64);
+        let quiet_area = alpha_sum(&quiet_image, 0, 0, 96, 64);
+        assert!(loud_area > 100.0, "spectrum did not draw: {loud_area}");
+        // Every band retains its round baseline cap, even for near-silence.
+        assert!(quiet_area < loud_area * 0.6, "quiet audio was amplified: {quiet_area} vs {loud_area}");
+    }
+
+    #[test]
+    fn spectrum_hamming_tone_has_expected_bar_height() {
+        struct Tone400;
+        impl EffectHost for Tone400 {
+            fn layer(&self, _: u64, _: bool) -> Option<LayerPixels> {
+                None
+            }
+            fn audio(&self, _: u64, start: f64, frames: usize, rate: u32) -> Option<Vec<f32>> {
+                Some(
+                    (0..frames)
+                        .flat_map(|i| {
+                            let sample = (2.0 * PI * 400.0 * (start + i as f64 / rate as f64)).sin() as f32 * 0.5;
+                            [sample, sample]
+                        })
+                        .collect(),
+                )
+            }
+        }
+        let tone = Tone400;
+        let env = EffectEnv { host: Some(&tone), comp_time: 1.0, ..Default::default() };
+        let params = [
+            ("audioLayer", Value::Layer(Some(1))),
+            ("startPoint", Value::Vec2([0.0, 100.0])),
+            ("endPoint", Value::Vec2([100.0, 100.0])),
+            ("startFrequency", num(400.0)),
+            ("endFrequency", num(401.0)),
+            ("frequencyBands", num(1.0)),
+            ("maximumHeight", num(100.0)),
+            ("thickness", num(4.0)),
+            ("softness", num(0.0)),
+        ];
+        let rendered = run_env("ec.generate.audiospectrum", &params, Image::new(128, 128), 1.0, env).img;
+        let top = (0..128).find(|&y| rendered.get(50, y)[3] > 0.5).expect("tone drew a bar");
+        // A 0.5 bin-centered sine retains Hamming's 0.54 gain: 0.27 * 100 px,
+        // with a 2 px round cap at the top of the digital bar.
+        assert!((69..=76).contains(&top), "unexpected Hamming bar top: {top}");
     }
 
     #[test]

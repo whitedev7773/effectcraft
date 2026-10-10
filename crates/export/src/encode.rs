@@ -268,7 +268,7 @@ pub(crate) async fn movie(job: &Cx<'_>, comp: &Comp, w: u32, h: u32, st: &mut St
 
     // Encode the first batch before creating tracks: encoders finalise their config on frame 1.
     let first_end = batch.min(st.total);
-    let first: Vec<Vec<u8>> = job.frames(comp, (0..first_end).collect(), render).await;
+    let first: Vec<Vec<u8>> = job.frames(comp, (0..first_end).collect(), render).await?;
     let mut pending = Vec::new();
     for (k, px) in first.iter().enumerate() {
         pending.extend(venc.encode(px, k as u64)?);
@@ -353,18 +353,16 @@ pub(crate) async fn movie(job: &Cx<'_>, comp: &Comp, w: u32, h: u32, st: &mut St
     let frame_end_time = |k: u64| -> Tick { if k >= total { span_end } else { job.settings.frame_time(comp, k) } };
     write_video(&mut mux, pending)?;
     write_audio_until(&mut mux, frame_end_time(first_end), &mut cursor)?;
-    let mut i = first_end;
-    while i < total {
-        let end = (i + batch).min(total);
-        let frames: Vec<Vec<u8>> = job.frames(comp, (i..end).collect(), render).await;
+    job.batches(comp, first_end, total, render, |i, end, frames| {
         for (k, px) in frames.iter().enumerate() {
             let ps = venc.encode(px, i + k as u64)?;
             write_video(&mut mux, ps)?;
         }
         write_audio_until(&mut mux, frame_end_time(end), &mut cursor)?;
         st.advance(end - i)?;
-        i = end;
-    }
+        Ok(())
+    })
+    .await?;
     write_video(&mut mux, venc.flush()?)?;
     write_audio_until(&mut mux, span_end, &mut cursor)?;
     if let Some((Audio::Aac(e), at)) = audio.as_mut() {

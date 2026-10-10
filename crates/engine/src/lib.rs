@@ -16,6 +16,7 @@ pub mod commands;
 pub mod config;
 pub mod demo;
 pub mod ease_presets;
+pub mod composer;
 pub mod footage_check;
 pub mod guard;
 pub mod history;

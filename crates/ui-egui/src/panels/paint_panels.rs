@@ -73,8 +73,8 @@ pub fn paint(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let t = app.tokens;
     let p = ui.painter().with_clip_rect(rect);
     let o = app.session.state.paint.clone();
-    let x0 = rect.min.x + 10.0;
-    let w = rect.width() - 20.0;
+    let x0 = rect.min.x + 12.0;
+    let w = (rect.width() - 24.0).clamp(0.0, 520.0);
     let mut y = rect.min.y + 10.0;
     let eraser = app.ui.tool == Tool::Eraser;
     let clone = app.ui.tool == Tool::Clone;
@@ -278,8 +278,8 @@ pub fn brushes(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let t = app.tokens;
     let p = ui.painter().with_clip_rect(rect);
     let o = app.session.state.paint.clone();
-    let x0 = rect.min.x + 10.0;
-    let w = rect.width() - 20.0;
+    let x0 = rect.min.x + 12.0;
+    let w = (rect.width() - 24.0).clamp(0.0, 520.0);
     let mut y = rect.min.y + 8.0;
     // Preset grid (thumbnails with size labels).
     let cell = 38.0;

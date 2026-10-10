@@ -177,7 +177,7 @@ fn fxt_point(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let aa = max(a, 0.0);
                 var nc: vec3<f32>;
                 for (var i = 0u; i < 3u; i++) {
-                    nc[i] = fxt_lv(i + 1u, fxt_lv(0u, c[i], cb, cw), cb, cw);
+                    nc[i] = fxt_lv(0u, fxt_lv(i + 1u, c[i], cb, cw), cb, cw);
                 }
                 let na = clamp(clamp(fxt_lv(4u, aa, cb, cw), 0.0, 1.0), 0.0, 1.0);
                 o = vec4<f32>(nc * na, na);
@@ -513,39 +513,20 @@ fn fxt_point(@builtin(global_invocation_id) gid: vec3<u32>) {
             o = vec4<f32>(hsl_to_rgb(h, s, l) * a, a);
         }
         case 15u: {
-            var r = c;
-            if (!straight_skip) {
-                for (var i = 0u; i < 3u; i++) {
-                    r[i] = fxt_level(0u, c[i]);
-                }
-            }
-            // The master pass writes premultiplied values; the channel pass reads them back.
-            var q = px;
-            if (!straight_skip) {
-                q = vec4<f32>(r * a, a);
-            }
-            let qc = fxt_straight(q);
-            let qa = max(q.w, 0.0);
-            var any_ch = false;
-            for (var k = 0u; k < 4u; k++) {
-                if (!fxt_level_ident(7u + 7u * k)) {
-                    any_ch = true;
-                }
-            }
-            if (!any_ch) {
-                o = q;
-                break;
-            }
-            var oc = qc;
+            var oc = c;
             for (var i = 0u; i < 3u; i++) {
                 let off = 7u + 7u * i;
                 if (!fxt_level_ident(off)) {
-                    oc[i] = fxt_level(off, qc[i]);
+                    oc[i] = fxt_level(off, oc[i]);
+                }
+                // Per-channel corrections precede the master RGB correction.
+                if (!straight_skip) {
+                    oc[i] = fxt_level(0u, oc[i]);
                 }
             }
-            var na = qa;
+            var na = max(a, 0.0);
             if (!fxt_level_ident(28u)) {
-                na = clamp(fxt_level(28u, qa), 0.0, 1.0);
+                na = clamp(fxt_level(28u, na), 0.0, 1.0);
             }
             o = vec4<f32>(oc * na, na);
         }

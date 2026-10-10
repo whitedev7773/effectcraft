@@ -39,9 +39,14 @@ pub struct LayerCache {
 }
 
 struct Entry {
-    buf: Arc<Buf>,
+    value: CachedPixels,
     bytes: usize,
     last_use: u64,
+}
+
+enum CachedPixels {
+    Layer(Arc<Buf>),
+    Mask(Arc<effectcraft_raster::Mask>),
 }
 
 struct Inner {
@@ -151,7 +156,8 @@ impl LayerCache {
         match g.map.get_mut(&key) {
             Some(e) => {
                 e.last_use = now;
-                let b = e.buf.clone();
+                let CachedPixels::Layer(b) = &e.value else { return None };
+                let b = b.clone();
                 g.hits += 1;
                 Some(b)
             }
@@ -186,17 +192,46 @@ impl LayerCache {
     }
 
     fn insert_mem(&self, key: u64, buf: Arc<Buf>) {
-        let bytes = buf.img.data.len() * std::mem::size_of::<effectcraft_raster::Px>();
-        let Ok(mut g) = self.inner.lock() else { return };
-        if bytes > g.budget / 4 {
+        let Some(bytes) = buf.img.data.len().checked_mul(std::mem::size_of::<effectcraft_raster::Px>()) else { return };
+        self.insert_pixels(key, CachedPixels::Layer(buf), bytes);
+    }
+
+    /// Mask coverage shares the layer cache's memory budget and eviction policy. It is kept
+    /// before opacity/invert/mode, so those inexpensive operations still evaluate every frame.
+    pub(crate) fn get_mask(&self, key: u64) -> Option<Arc<effectcraft_raster::Mask>> {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        g.clock = g.clock.wrapping_add(1);
+        let now = g.clock;
+        let Some(e) = g.map.get_mut(&key) else {
+            g.misses = g.misses.saturating_add(1);
+            return None;
+        };
+        let CachedPixels::Mask(mask) = &e.value else { return None };
+        let mask = mask.clone();
+        e.last_use = now;
+        g.hits = g.hits.saturating_add(1);
+        Some(mask)
+    }
+
+    pub(crate) fn insert_mask(&self, key: u64, mask: Arc<effectcraft_raster::Mask>) {
+        if self.gated() {
             return;
         }
-        g.clock += 1;
-        let now = g.clock;
-        if let Some(old) = g.map.insert(key, Entry { buf, bytes, last_use: now }) {
-            g.bytes -= old.bytes;
+        let Some(bytes) = mask.data.len().checked_mul(std::mem::size_of::<f32>()) else { return };
+        self.insert_pixels(key, CachedPixels::Mask(mask), bytes);
+    }
+
+    fn insert_pixels(&self, key: u64, value: CachedPixels, bytes: usize) {
+        let Ok(mut g) = self.inner.lock() else { return };
+        if bytes > g.budget / 4 || bytes == 0 {
+            return;
         }
-        g.bytes += bytes;
+        g.clock = g.clock.wrapping_add(1);
+        let now = g.clock;
+        if let Some(old) = g.map.insert(key, Entry { value, bytes, last_use: now }) {
+            g.bytes = g.bytes.saturating_sub(old.bytes);
+        }
+        g.bytes = g.bytes.saturating_add(bytes);
         if g.bytes > g.budget {
             // Evict least-recently used entries down to 3/4 of the budget.
             let target = g.budget / 4 * 3;
@@ -640,4 +675,42 @@ pub fn derive(key: u64, i: u64) -> u64 {
     let mut h = KeyHasher(key);
     i.hash(&mut h);
     h.finish()
+}
+
+/// Coverage depends on evaluated geometry and the buffer coordinate system, not layer time
+/// or the source pixels. Animated paths/expressions invalidate it through their actual values.
+pub(crate) fn mask_key(path: &effectcraft_keyframe::ShapePath, buf: &Buf, expansion: f64, feather: [f64; 2], linear: bool) -> u64 {
+    let mut h = KeyHasher(0x6d61_736b_636f_7665);
+    hash_debug(&mut h, path);
+    (buf.img.width, buf.img.height).hash(&mut h);
+    for v in [buf.offset[0], buf.offset[1], buf.scale, expansion, feather[0], feather[1]] {
+        v.to_bits().hash(&mut h);
+    }
+    linear.hash(&mut h);
+    h.finish()
+}
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn mask_and_layer_pixels_share_the_budget_and_clear_together() {
+        let cache = LayerCache::new(256);
+        for k in 0..5 {
+            cache.insert_mask(k, Arc::new(effectcraft_raster::Mask::new(4, 4, 0.0)));
+            assert!(cache.stats().bytes <= 256);
+        }
+        assert!(cache.get_mask(0).is_none(), "old coverage was evicted");
+        let mask = cache.get_mask(4).unwrap();
+        assert!(Arc::ptr_eq(&mask, &cache.get_mask(4).unwrap()));
+        cache.insert(100, Arc::new(Buf { img: effectcraft_raster::Image::new(2, 2), scale: 1.0, offset: [0.0; 2] }));
+        assert!(cache.stats().bytes <= 256);
+        assert!(cache.get(100).is_some());
+        cache.set_budget(64);
+        assert!(cache.stats().bytes <= 64);
+        cache.clear();
+        assert_eq!(cache.stats().bytes, 0);
+        assert!(cache.get_mask(4).is_none());
+    }
 }

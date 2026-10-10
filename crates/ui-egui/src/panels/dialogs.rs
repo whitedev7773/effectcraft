@@ -194,8 +194,8 @@ pub fn show(app: &mut EffectcraftApp, ctx: &egui::Context) {
     }
 }
 
-/// About tabs: About · Contributors · Models.
-const ABOUT_TABS: [(&str, &str); 3] = [("About", "about"), ("Contributors", "contributors"), ("Models", "models")];
+/// About tabs, including the licences shipped with the bundled UI assets.
+const ABOUT_TABS: [(&str, &str); 4] = [("About", "about"), ("Contributors", "contributors"), ("Models", "models"), ("Licences", "licences")];
 /// Height of the Contributors / Models tab bodies (they scroll inside it).
 const CREDITS_HEIGHT: f32 = 380.0;
 
@@ -217,6 +217,19 @@ fn about(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
         ui.data_mut(|d| d.insert_temp(tab_id, tab));
         ui.separator();
         match tab {
+            3 => {
+                egui::ScrollArea::vertical().max_height(CREDITS_HEIGHT).show(ui, |ui| {
+                    for (name, license) in [
+                        ("Wanted Sans", include_str!("../../../../assets/fonts/OFL-WantedSans.txt")),
+                        ("Gravity UI Icons", include_str!("../../../../assets/icons/gravity/LICENSE.txt")),
+                        ("JetBrains Mono", include_str!("../../../../assets/fonts/OFL-JetBrainsMono.txt")),
+                    ] {
+                        ui.heading(name);
+                        ui.label(license);
+                        ui.separator();
+                    }
+                });
+            }
             1 | 2 => {
                 let h = CREDITS_HEIGHT.min(ui.available_height().max(120.0));
                 ui.allocate_ui(vec2(ui.available_width(), h), |ui| {
@@ -232,7 +245,7 @@ fn about(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
         }
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("MIT OR Apache-2.0 • Fonts: Inter, JetBrains Mono (OFL)").small().color(t.text_faint));
+            ui.label(egui::RichText::new("Wanted Sans / JetBrains Mono (OFL) • Gravity Icons (MIT)").small().color(t.text_faint));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let r = ui.button("Close");
                 app.auto.add("about.close", r.rect, "Close");
@@ -250,7 +263,7 @@ fn about(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
     }
 }
 
-/// The About tab: logo, version, blurb and community links.
+/// The About tab: logo, version, blurb and project links.
 fn about_main(app: &mut EffectcraftApp, ui: &mut egui::Ui, t: &Tokens, cmd: &mut Option<&'static str>) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 96.0), Sense::hover());
     let p = ui.painter();
@@ -260,44 +273,28 @@ fn about_main(app: &mut EffectcraftApp, ui: &mut egui::Ui, t: &Tokens, cmd: &mut
     p.text(
         r.min + vec2(90.0, 62.0),
         Align2::LEFT_CENTER,
-        format!("Version {}  •  Motion graphics & VFX in pure Rust", env!("CARGO_PKG_VERSION")),
+        format!("Version {}  •  Unofficial customized build", env!("CARGO_PKG_VERSION")),
         Tokens::ui(12.0),
         t.text_dim,
     );
     ui.add_space(12.0);
-    ui.label("A clean-room, open-source compositor for motion graphics and visual effects: native on macOS, Windows and Linux, and in the browser. Part of the ArtCraft family of creative apps.");
+    ui.label("Cloned from storytold/effectcraft and modified for a specific usage environment and its requirements. Based on the original open-source EffectCraft compositor by the ArtCraft Team and contributors.");
+    ui.add_space(6.0);
+    ui.label(egui::RichText::new("Customized UI fonts, icons, panels, render queue controls and editor layout.").small().color(t.text_dim));
     ui.add_space(14.0);
-    let links: [(Icon, &str, &str, &'static str); 4] = [
-        (Icon::Chat, "Join the ArtCraft Discord", effectcraft_engine::links::DISCORD, "help.discord"),
-        (Icon::Globe, "ArtCraft website", effectcraft_engine::links::WEBSITE, "help.website"),
-        (Icon::Sparkle, "EffectCraft home page", effectcraft_engine::links::APP_PAGE, "help.appPage"),
-        (Icon::Code, "Source code on GitHub", effectcraft_engine::links::GITHUB, "help.github"),
+    let links: [(Icon, &str, &str, &'static str); 3] = [
+        (Icon::Globe, "Original project website", effectcraft_engine::links::WEBSITE, "help.website"),
+        (Icon::Sparkle, "Original EffectCraft home page", effectcraft_engine::links::APP_PAGE, "help.appPage"),
+        (Icon::Code, "Original source: storytold/effectcraft", effectcraft_engine::links::GITHUB, "help.github"),
     ];
     for (icon, label, url, c) in links {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
         let p = ui.painter();
-        let discord = c == "help.discord";
-        p.rect_filled(
-            r,
-            6.0,
-            if discord {
-                Color32::from_rgb(0x58, 0x65, 0xf2)
-            } else if resp.hovered() {
-                t.hover
-            } else {
-                t.field_bg
-            },
-        );
-        let foreground = if discord { Color32::WHITE } else { t.text };
+        p.rect_filled(r, 6.0, if resp.hovered() { t.hover } else { t.field_bg });
+        let foreground = t.text;
         icons::paint(p, Rect::from_center_size(pos2(r.min.x + 18.0, r.center().y), vec2(15.0, 15.0)), icon, foreground);
         p.text(pos2(r.min.x + 36.0, r.center().y), Align2::LEFT_CENTER, label, Tokens::medium(12.5), foreground);
-        p.text(
-            pos2(r.max.x - 12.0, r.center().y),
-            Align2::RIGHT_CENTER,
-            url,
-            Tokens::ui(11.0),
-            if discord { Color32::from_white_alpha(200) } else { t.text_dim },
-        );
+        p.text(pos2(r.max.x - 12.0, r.center().y), Align2::RIGHT_CENTER, url, Tokens::ui(11.0), t.text_dim);
         app.auto.add(&format!("about.{c}"), r, label);
         if resp.clicked() {
             *cmd = Some(c);
@@ -309,7 +306,7 @@ fn about_main(app: &mut EffectcraftApp, ui: &mut egui::Ui, t: &Tokens, cmd: &mut
 fn comp_settings(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens, existing: bool) {
     let mut d = app.dialog_state.comp.clone();
     let mut result = None;
-    modal(ctx, "Composition Settings", vec2(600.0, 470.0), t, |ui| {
+    modal(ctx, "Composition Settings", vec2(640.0, 560.0), t, |ui| {
         result = super::comp_settings::show(ui, &mut d, t, &mut app.auto);
     });
     if result.is_none() && ui_enter(ctx) {
@@ -426,7 +423,7 @@ fn solid(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
         }
         ui.add_space(14.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let r = ui.add(egui::Button::new(egui::RichText::new("   OK   ").color(Color32::WHITE)).fill(t.accent));
+            let r = ui.add(egui::Button::new(egui::RichText::new("OK").color(Color32::WHITE)).min_size(vec2(80.0, 28.0)).fill(t.accent));
             auto.add("dialog.solid.ok", r.rect, "OK");
             ok = r.clicked();
             let r = ui.button("Cancel");

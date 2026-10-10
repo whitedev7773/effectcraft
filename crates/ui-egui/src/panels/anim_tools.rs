@@ -12,10 +12,10 @@ use serde_json::json;
 use crate::theme::Tokens;
 use crate::{EffectcraftApp, widgets};
 
-const ROW: f32 = 26.0;
+const ROW: f32 = 32.0;
 
 fn label(p: &egui::Painter, x: f32, y: f32, s: &str, t: &Tokens) {
-    p.text(pos2(x, y + 9.0), Align2::LEFT_CENTER, s, Tokens::ui(12.0), t.text_dim);
+    p.text(pos2(x, y + 13.0), Align2::LEFT_CENTER, s, Tokens::ui(12.0), t.text_dim);
 }
 
 /// A dropdown with options; returns the new index when changed.
@@ -38,12 +38,7 @@ fn number(app: &mut EffectcraftApp, ui: &mut egui::Ui, at: egui::Pos2, auto: &st
 }
 
 fn checkbox(app: &mut EffectcraftApp, ui: &mut egui::Ui, at: egui::Pos2, auto: &str, text: &str, on: bool) -> bool {
-    let t = app.tokens;
-    let r = Rect::from_min_size(at, vec2(16.0, 16.0));
-    let clicked = widgets::checkbox(ui, r, on, &t, egui::Id::new(("animtool-cb", auto))).clicked();
-    ui.painter().text(pos2(r.max.x + 6.0, r.center().y), Align2::LEFT_CENTER, text, Tokens::ui(12.0), t.text);
-    app.auto.add(auto, r, text);
-    if clicked { !on } else { on }
+    super::panel_kit::checkbox(app, ui, at, auto, text, on)
 }
 
 fn status_line(app: &EffectcraftApp, ui: &egui::Ui, rect: Rect, y: f32, need: usize) {
@@ -66,18 +61,18 @@ pub fn wiggler(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let p = ui.painter().with_clip_rect(rect);
     let x0 = rect.min.x + 12.0;
     let xv = x0 + 96.0;
-    let w = (rect.max.x - xv - 12.0).clamp(80.0, 200.0);
+    let w = (rect.max.x - xv - 12.0).clamp(0.0, 260.0);
     let mut y = rect.min.y + 10.0;
     let mut st = app.ui.anim_tools.clone();
     label(&p, x0, y, "Apply To:", &t);
     if let Some(i) =
-        choice(app, ui, Rect::from_min_size(pos2(xv, y), vec2(w, 20.0)), "wiggler.applyTo", &["Spatial Path", "Temporal Path"], usize::from(!st.wiggle_spatial))
+        choice(app, ui, Rect::from_min_size(pos2(xv, y), vec2(w, 26.0)), "wiggler.applyTo", &["Spatial Path", "Temporal Path"], usize::from(!st.wiggle_spatial))
     {
         st.wiggle_spatial = i == 0;
     }
     y += ROW;
     label(&p, x0, y, "Noise Type:", &t);
-    if let Some(i) = choice(app, ui, Rect::from_min_size(pos2(xv, y), vec2(w, 20.0)), "wiggler.noise", &["Smooth", "Jagged"], usize::from(!st.wiggle_smooth)) {
+    if let Some(i) = choice(app, ui, Rect::from_min_size(pos2(xv, y), vec2(w, 26.0)), "wiggler.noise", &["Smooth", "Jagged"], usize::from(!st.wiggle_smooth)) {
         st.wiggle_smooth = i == 0;
     }
     y += ROW;
@@ -88,7 +83,7 @@ pub fn wiggler(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
         "same" => 3,
         _ => 4,
     };
-    if let Some(i) = choice(app, ui, Rect::from_min_size(pos2(xv, y), vec2(w, 20.0)), "wiggler.dimension", &dims, cur) {
+    if let Some(i) = choice(app, ui, Rect::from_min_size(pos2(xv, y), vec2(w, 26.0)), "wiggler.dimension", &dims, cur) {
         match i {
             0..=2 => {
                 st.wiggle_dims = "one".into();
@@ -106,7 +101,7 @@ pub fn wiggler(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     st.wiggle_magnitude = number(app, ui, pos2(xv, y), "wiggler.magnitude", st.wiggle_magnitude, 0.5, (0.0, 100_000.0), 1, "");
     y += ROW + 8.0;
     app.ui.anim_tools = st.clone();
-    let b = Rect::from_min_size(pos2(rect.max.x - 92.0, y), vec2(80.0, 24.0));
+    let b = Rect::from_min_size(pos2(x0, y), vec2(80.0, 24.0));
     let enabled = app.session.state.selected_keys.len() >= 2;
     if widgets::text_button(ui, b, "Apply", enabled, &t, egui::Id::new("wg-apply")).clicked() {
         let params = json!({
@@ -147,7 +142,7 @@ pub fn smoother(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let tol = number(app, ui, pos2(xv, y), "smoother.tolerance", app.ui.anim_tools.smooth_tolerance, 0.05, (0.0, 10_000.0), 2, "");
     app.ui.anim_tools.smooth_tolerance = tol;
     y += ROW + 8.0;
-    let b = Rect::from_min_size(pos2(rect.max.x - 92.0, y), vec2(80.0, 24.0));
+    let b = Rect::from_min_size(pos2(x0, y), vec2(80.0, 24.0));
     let enabled = app.session.state.selected_keys.len() >= 3;
     if widgets::text_button(ui, b, "Apply", enabled, &t, egui::Id::new("sm-apply")).clicked() {
         apply(app, "keys.smooth", json!({"tolerance": tol}));
@@ -304,7 +299,7 @@ pub fn mask_interpolation(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rec
     let p = ui.painter().with_clip_rect(rect);
     let x0 = rect.min.x + 12.0;
     let xv = x0 + 130.0;
-    let w = (rect.max.x - xv - 12.0).clamp(80.0, 200.0);
+    let w = (rect.max.x - xv - 12.0).clamp(0.0, 260.0);
     let mut y = rect.min.y + 10.0;
     let o = app.session.state.mask_interp.clone();
     let mut changes = serde_json::Map::new();
@@ -359,7 +354,7 @@ pub fn mask_interpolation(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rec
         if let Some(i) = choice(
             app,
             ui,
-            Rect::from_min_size(pos2(xv, y), vec2(w, 20.0)),
+            Rect::from_min_size(pos2(xv, y), vec2(w, 26.0)),
             "maskInterp.addVerticesUnit",
             &["Pixels Between Vertices", "Total Vertices", "Percentage of Outline"],
             cur,
@@ -371,7 +366,7 @@ pub fn mask_interpolation(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rec
     label(&p, x0, y, "Matching Method:", &t);
     let methods = ["auto", "curve", "polyline"];
     let cur = methods.iter().position(|m| *m == o.matching_method).unwrap_or(0);
-    if let Some(i) = choice(app, ui, Rect::from_min_size(pos2(xv, y), vec2(w, 20.0)), "maskInterp.matchingMethod", &["Auto", "Curve", "Polyline"], cur) {
+    if let Some(i) = choice(app, ui, Rect::from_min_size(pos2(xv, y), vec2(w, 26.0)), "maskInterp.matchingMethod", &["Auto", "Curve", "Polyline"], cur) {
         changes.insert("matchingMethod".into(), json!(methods[i]));
     }
     y += ROW;
@@ -389,7 +384,7 @@ pub fn mask_interpolation(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rec
     {
         app.ui.status = e.to_string();
     }
-    let b = Rect::from_min_size(pos2(rect.max.x - 92.0, y), vec2(80.0, 24.0));
+    let b = Rect::from_min_size(pos2(x0, y), vec2(80.0, 24.0));
     let enabled = app.session.state.selected_keys.len() >= 2;
     if widgets::text_button(ui, b, "Apply", enabled, &t, egui::Id::new("mi-apply")).clicked() {
         match app.session.execute("mask.interpolate", json!({})) {

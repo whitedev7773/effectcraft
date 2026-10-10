@@ -670,6 +670,8 @@ pub struct UiState {
     /// Ease Presets panel: working curve, selected preset, name field.
     #[serde(default)]
     pub ease_presets: crate::panels::ease_presets::EasePanelState,
+    #[serde(default)]
+    pub composer: crate::panels::composer::ComposerState,
 }
 
 impl Default for UiState {
@@ -725,6 +727,7 @@ impl Default for UiState {
             flowchart: Default::default(),
             scopes: Default::default(),
             ease_presets: Default::default(),
+            composer: Default::default(),
         }
     }
 }

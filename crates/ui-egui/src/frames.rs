@@ -1,6 +1,6 @@
 //! Background frame rendering and the RAM preview cache.
 //!
-//! Frames render on a dedicated thread pool from immutable `Arc<Project>` snapshots, so the UI
+//! Frames render on dedicated OS threads from immutable `Arc<Project>` snapshots, so the UI
 //! never waits for the compositor. Results land in a memory-budgeted cache keyed by the comp's
 //! *content* ([`comp_content`]: the comp and everything it uses), frame, scale, view and render
 //! options; the timeline draws the cached range as the green cache bar. An edit keeps the frames
@@ -24,6 +24,8 @@
 //! them (Info panel, eyedroppers, histograms).
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Condvar;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -360,9 +362,8 @@ pub struct Frames {
     /// Pending jobs, picked by priority when a pool thread frees up (the viewer's frame first).
     queue: Arc<Mutex<Queue>>,
     #[cfg(not(target_arch = "wasm32"))]
-    /// None if the OS refused the threads: jobs then go to rayon's global pool.
-    pool: Option<rayon::ThreadPool>,
-    ctx: Option<egui::Context>,
+    pool: Option<NativeWorkers>,
+    ctx: Arc<Mutex<Option<egui::Context>>>,
     /// Render time of the last viewer (urgent) frame in ms, for the Info panel / perf readout.
     pub last_ms: Arc<Mutex<f64>>,
     content_keys: ContentKeys,
@@ -383,21 +384,16 @@ pub struct Frames {
 impl Default for Frames {
     fn default() -> Self {
         #[cfg(not(target_arch = "wasm32"))]
-        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(2, 16);
-        Frames {
+        // Pixels already use all Rayon cores. One foreground and one prefetch frame avoid
+        // multiplying full-comp GPU allocations and delaying the viewer behind many frames.
+        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).clamp(1, 2);
+        let frames = Frames {
             cache: Arc::new(Mutex::new(Cache { map: HashMap::new(), order: VecDeque::new(), bytes: 0, gpu_bytes: 0, budget: 3 << 30, gpu_budget: GPU_BUDGET })),
             inflight: Arc::new(Mutex::new(HashSet::new())),
             queue: Arc::new(Mutex::new(Queue::default())),
             #[cfg(not(target_arch = "wasm32"))]
-            // A panicking job would abort the whole process (rayon's default for `spawn`): log it
-            // and lose only that frame (the panic hook has logged the message).
-            pool: rayon::ThreadPoolBuilder::new()
-                .num_threads(threads)
-                .thread_name(|i| format!("ec-frame-{i}"))
-                .panic_handler(|_| log::error!("a frame render panicked; that frame was skipped"))
-                .build()
-                .ok(),
-            ctx: None,
+            pool: None,
+            ctx: Arc::default(),
             last_ms: Arc::new(Mutex::new(0.0)),
             content_keys: Arc::default(),
             gpu_retired: Arc::default(),
@@ -406,7 +402,14 @@ impl Default for Frames {
             keepers: Mutex::default(),
             remote: None,
             remote_busy: Arc::default(),
-        }
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let frames = {
+            let mut frames = frames;
+            frames.pool = Some(NativeWorkers::new(frames.worker(), threads));
+            frames
+        };
+        frames
     }
 }
 
@@ -488,29 +491,29 @@ impl Frames {
             let Cache { map, order, .. } = &mut *cache;
             order.retain(|key| map.contains_key(key));
         }
-        if let Some(ctx) = &self.ctx {
+        if let Some(ctx) = self.context() {
             ctx.request_repaint();
         }
     }
 
-    /// Actual native frame-worker capacity, including the OS fallback pool.
+    /// Actual native frame-worker capacity.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn parallelism(&self) -> usize {
-        self.pool.as_ref().map_or_else(rayon::current_num_threads, rayon::ThreadPool::current_num_threads)
+        self.pool.as_ref().map_or(0, |pool| pool.threads)
     }
     #[cfg(target_arch = "wasm32")]
     pub fn parallelism(&self) -> usize {
         self.remote_slots().max(1)
     }
     pub fn set_context(&mut self, ctx: &egui::Context) {
-        if self.ctx.is_none() {
-            self.ctx = Some(ctx.clone());
+        if let Ok(mut current) = self.ctx.lock() {
+            current.get_or_insert_with(|| ctx.clone());
         }
     }
 
     /// The egui context (to request repaints from callbacks).
     pub fn context(&self) -> Option<egui::Context> {
-        self.ctx.clone()
+        self.ctx.lock().ok().and_then(|ctx| ctx.clone())
     }
 
     /// The cached frame, which becomes the most recently used.
@@ -589,6 +592,16 @@ impl Frames {
         self.cache.lock().map(|c| c.map.contains_key(k)).unwrap_or(false)
     }
 
+    /// The newest completed frame at or before the audio clock, with the same render settings.
+    /// Preview can show it while a slow renderer catches up without stopping the sound.
+    pub fn get_at_or_before(&self, base: &FrameKey) -> Option<(FrameKey, FrameImage)> {
+        let mut cache = self.cache.lock().ok()?;
+        let key = cache.map.keys().filter(|k| k.same_series(base) && k.frame <= base.frame).max_by_key(|k| k.frame).copied()?;
+        let image = cache.map.get(&key).cloned()?;
+        cache.touch(&key);
+        Some((key, image))
+    }
+
     pub fn inflight(&self) -> usize {
         self.inflight.lock().map(|s| s.len()).unwrap_or(0)
     }
@@ -662,6 +675,17 @@ impl Frames {
         self.queue.lock().map(|q| q.urgent_running > 0 || q.jobs.iter().any(|j| j.urgent)).unwrap_or(false)
     }
 
+    /// Drop queued video work outside a real-time preview's moving window. Already running
+    /// jobs finish normally; otherwise slow rendering would accumulate every skipped frame.
+    pub fn retain_preview_window(&self, base: &FrameKey, last: i64) {
+        let Ok(mut queue) = self.queue.lock() else { return };
+        let keep = |key: &FrameKey| !key.same_series(base) || (base.frame..=last).contains(&key.frame);
+        queue.jobs.retain(|job| keep(&job.key));
+        if let Ok(mut inflight) = self.inflight.lock() {
+            inflight.retain(|key| keep(key) || queue.running.contains(key));
+        }
+    }
+
     fn request_with(&self, src: &RenderSource, key: FrameKey, comp: ItemId, t: Tick, opts: RenderOpts, urgent: bool) {
         if self.is_cached(&key) {
             return;
@@ -693,19 +717,20 @@ impl Frames {
         q.jobs.push(Job { key, src: src.clone(), comp, t, opts, urgent, seq });
         drop(q);
         #[cfg(not(target_arch = "wasm32"))]
-        if self.remote.is_none() {
-            let w = self.worker();
-            // One spawn per job; each spawn renders whichever queued job matters most right now.
-            let job = move || {
-                w.run_next();
-            };
-            match &self.pool {
-                Some(pool) => pool.spawn(job),
-                None => rayon::spawn(job),
+        if self.remote.is_none()
+            && let Some(pool) = &self.pool
+        {
+            pool.wake.notify_one();
+            if pool.threads == 0 {
+                log::error!("cannot render preview: the OS refused all frame workers");
+                self.worker().release(key, urgent);
+                if let Ok(mut queue) = self.queue.lock() {
+                    queue.jobs.retain(|job| job.key != key);
+                }
             }
         }
         #[cfg(target_arch = "wasm32")]
-        if let Some(ctx) = &self.ctx {
+        if let Some(ctx) = self.context() {
             // rendered by `pump` after this UI frame
             ctx.request_repaint();
         }
@@ -841,14 +866,70 @@ impl Frames {
 }
 
 /// Renders queued jobs (on a pool thread, or the UI thread on wasm32).
+#[derive(Clone)]
 struct Worker {
     queue: Arc<Mutex<Queue>>,
     cache: Arc<Mutex<Cache>>,
     inflight: Arc<Mutex<HashSet<FrameKey>>>,
-    ctx: Option<egui::Context>,
+    ctx: Arc<Mutex<Option<egui::Context>>>,
     last: Arc<Mutex<f64>>,
     content_keys: ContentKeys,
     gpu_retired: Arc<AtomicBool>,
+}
+
+/// Only pixel jobs belong in Rayon. A frame running there can yield to another frame while
+/// waiting for its pixels, recursively stacking whole renderers until the process overflows.
+/// OS workers drain the priority queue iteratively; Rayon can only help their pixel work.
+#[cfg(not(target_arch = "wasm32"))]
+struct NativeWorkers {
+    queue: Arc<Mutex<Queue>>,
+    wake: Arc<Condvar>,
+    threads: usize,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl NativeWorkers {
+    fn new(worker: Worker, threads: usize) -> Self {
+        let mut pool = Self { queue: worker.queue.clone(), wake: Arc::default(), threads: 0 };
+        for i in 0..threads {
+            let (worker, wake) = (worker.clone(), pool.wake.clone());
+            let spawned = std::thread::Builder::new().name(format!("ec-frame-{i}")).spawn(move || {
+                loop {
+                    {
+                        let mut queue = worker.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        while queue.jobs.is_empty() && !queue.stopped {
+                            queue = wake.wait(queue).unwrap_or_else(std::sync::PoisonError::into_inner);
+                        }
+                        if queue.stopped {
+                            break;
+                        }
+                    }
+                    // The render itself has its CPU retry boundary; keep this worker alive if
+                    // an unexpected error escapes the surrounding cache or publication code.
+                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.run_next())).is_err() {
+                        log::error!("a frame worker panicked; the render was skipped");
+                    }
+                }
+            });
+            match spawned {
+                Ok(_) => pool.threads += 1,
+                Err(error) => log::error!("cannot start frame worker {i}: {error}"),
+            }
+        }
+        pool
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for NativeWorkers {
+    fn drop(&mut self) {
+        // No UI-thread join: a running frame may take a while. It releases its snapshot and
+        // exits after finishing; idle workers exit immediately and queued work is discarded.
+        let mut queue = self.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        queue.stopped = true;
+        queue.jobs.clear();
+        self.wake.notify_all();
+    }
 }
 
 impl Worker {
@@ -886,9 +967,7 @@ impl Worker {
         if !disk_hit && let (Some((dc, k)), FrameImage::Cpu(img)) = (&disk, &ci) {
             let rgba: Vec<u8> = img.pixels.iter().flat_map(|c| c.to_array()).collect();
             dc.put_frame(*k, img.size[0] as u32, img.size[1] as u32, &rgba);
-            if let Some(ctx) = &self.ctx {
-                ctx.request_repaint();
-            }
+            self.repaint();
         }
         true
     }
@@ -921,7 +1000,13 @@ impl Worker {
                 q.urgent_running = q.urgent_running.saturating_sub(1);
             }
         }
-        if let Some(ctx) = &self.ctx {
+        self.repaint();
+    }
+
+    fn repaint(&self) {
+        if let Ok(ctx) = self.ctx.lock()
+            && let Some(ctx) = ctx.as_ref()
+        {
             ctx.request_repaint();
         }
     }
@@ -1051,6 +1136,8 @@ struct Queue {
     running: HashSet<FrameKey>,
     urgent_running: usize,
     seq: u64,
+    #[cfg(not(target_arch = "wasm32"))]
+    stopped: bool,
 }
 
 impl Queue {
@@ -1114,6 +1201,47 @@ mod tests {
         f.cache.lock().unwrap().insert(k, img());
     }
 
+    #[test]
+    fn audio_preview_fallback_uses_only_completed_frames_of_the_current_series() {
+        let frames = Frames::default();
+        for k in [key(1, 3, 0), key(1, 7, 0), key(1, 12, 0), key(2, 9, 0), key(1, 9, 1), FrameKey { comp: 2, ..key(1, 9, 0) }] {
+            insert(&frames, k);
+        }
+        let (chosen, _) = frames.get_at_or_before(&key(1, 10, 0)).unwrap();
+        assert_eq!(chosen, key(1, 7, 0), "no future frame, different comp, stale content or other render settings");
+        assert_eq!(frames.get_at_or_before(&key(1, 12, 0)).unwrap().0.frame, 12);
+        assert!(frames.get_at_or_before(&key(1, 2, 0)).is_none());
+    }
+
+    #[test]
+    fn audio_preview_window_releases_stale_jobs_but_keeps_running_and_other_series() {
+        let frames = Frames::default();
+        let src = crate::EffectcraftApp::new(effectcraft_engine::Session::default()).render_source();
+        let keys = [key(1, 2, 0), key(1, 10, 0), key(1, 15, 0), key(1, 30, 0), key(2, 2, 0)];
+        for key in keys {
+            frames.inflight.lock().unwrap().insert(key);
+            frames.queue.lock().unwrap().jobs.push(Job {
+                key,
+                src: src.clone(),
+                comp: ItemId(1),
+                t: Tick::ZERO,
+                opts: RenderOpts::default(),
+                urgent: false,
+                seq: 0,
+            });
+        }
+        let running = key(1, 1, 0);
+        frames.inflight.lock().unwrap().insert(running);
+        frames.queue.lock().unwrap().running.insert(running);
+        frames.retain_preview_window(&key(1, 10, 0), 20);
+        let jobs: Vec<_> = frames.queue.lock().unwrap().jobs.iter().map(|job| job.key).collect();
+        assert_eq!(jobs, vec![key(1, 10, 0), key(1, 15, 0), key(2, 2, 0)]);
+        let inflight = frames.inflight.lock().unwrap();
+        assert_eq!(inflight.len(), 4);
+        assert!(inflight.contains(&running));
+        assert!(!inflight.contains(&key(1, 2, 0)) && !inflight.contains(&key(1, 30, 0)));
+    }
+
     /// A frame whose render panics (a GPU out of memory used to, on every frame thread) is
     /// released, not left "in progress" forever, so the viewer can ask for it again (#106).
     #[test]
@@ -1159,6 +1287,72 @@ mod tests {
         assert!(footage.0.load(Ordering::SeqCst) > 0, "the render reached the footage");
         assert_eq!(f.inflight(), 0, "released");
         assert!(!f.is_cached(&key));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn pixel_work_cannot_reenter_another_frame_render() {
+        use effectcraft_engine::project::{Footage, FootageKind};
+        use effectcraft_engine::render::Image;
+        use serde_json::json;
+        use std::cell::Cell;
+        use std::sync::atomic::AtomicUsize;
+        thread_local! { static DEPTH: Cell<usize> = const { Cell::new(0) }; }
+        struct Pixels {
+            ready: AtomicBool,
+            entered: AtomicBool,
+            max_depth: AtomicUsize,
+        }
+        impl FootageSource for Pixels {
+            fn frame(&self, _: ItemId, _: &Footage, _: Tick) -> Option<Arc<Image>> {
+                let depth = DEPTH.with(|d| {
+                    d.set(d.get() + 1);
+                    d.get()
+                });
+                self.max_depth.fetch_max(depth, Ordering::SeqCst);
+                self.entered.store(true, Ordering::Release);
+                while !self.ready.load(Ordering::Acquire) {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                // Rayon may help pending pixel jobs. It must never find a whole frame job
+                // underneath this one: 1024 such jobs used to overflow a worker's stack.
+                rayon::yield_now();
+                rayon::join(rayon::yield_now, || {});
+                DEPTH.with(|d| d.set(d.get() - 1));
+                Some(Arc::new(Image::new(8, 8)))
+            }
+        }
+        let mut s = effectcraft_engine::Session::default();
+        let cid = ItemId(s.execute("comp.new", json!({"name":"frames", "width":8, "height":8, "duration":60})).unwrap()["comp"].as_u64().unwrap());
+        let clip = Footage { kind: FootageKind::Still, width: 8, height: 8, has_video: true, ..Default::default() };
+        let item = Arc::make_mut(&mut s.project).add_item("pixels", Default::default(), None, ItemKind::Footage(clip));
+        s.execute("layer.addItem", json!({"item":item.0})).unwrap();
+        let pixels = Arc::new(Pixels { ready: AtomicBool::new(false), entered: AtomicBool::new(false), max_depth: AtomicUsize::new(0) });
+        let src = RenderSource {
+            project: s.project.clone(),
+            footage: pixels.clone(),
+            expr: None,
+            layer_cache: Arc::default(),
+            gpu: None,
+            gpu_display: false,
+            disk: None,
+        };
+        let mut frames = Frames::default();
+        // Use one frame worker with a fresh queue to force the adversarial schedule.
+        drop(frames.pool.take());
+        frames.queue = Arc::default();
+        frames.pool = Some(NativeWorkers::new(frames.worker(), 1));
+        for frame in 0..1024 {
+            frames.request(&src, FrameKey { comp: cid.0, ..key(1, frame, 0) }, cid, Tick::ZERO, RenderOpts::default());
+        }
+        pixels.ready.store(true, Ordering::Release);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while frames.inflight() > 0 && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(pixels.entered.load(Ordering::Acquire));
+        assert_eq!(frames.inflight(), 0);
+        assert_eq!(pixels.max_depth.load(Ordering::SeqCst), 1);
     }
 
     /// Each time the GPU runs out of memory, half as many GPU frames are kept, down to a floor.

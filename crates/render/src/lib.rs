@@ -123,13 +123,20 @@ impl EffectHost for FxHost<'_, '_, '_> {
 
     fn audio(&self, id: u64, start: f64, frames: usize, rate: u32) -> Option<Vec<f32>> {
         let other = self.ctx.layer(effectcraft_project::LayerId(id))?;
-        let LayerSource::Footage { item } = &other.source else { return None };
-        let ItemKind::Footage(f) = &self.r.project.item(*item)?.kind else { return None };
-        if !f.has_audio {
-            return None;
-        }
         let st = other.layer_time(Tick::from_seconds_f64(start));
-        self.r.footage.audio(*item, f, st, frames, rate)
+        match &other.source {
+            LayerSource::Footage { item } => {
+                let ItemKind::Footage(f) = &self.r.project.item(*item)?.kind else { return None };
+                if !f.has_audio {
+                    return None;
+                }
+                self.r.footage.audio(*item, f, st, frames, rate)
+            }
+            LayerSource::Comp { item } if audio::comp_has_audio(self.r.project, *item) => {
+                Some(audio::mix_comp(self.r.project, self.r.footage, self.r.expr, *item, st, frames, rate))
+            }
+            _ => None,
+        }
     }
 
     fn self_at(&self, layer_time: f64, effects: usize) -> Option<Buf> {
@@ -1157,7 +1164,7 @@ impl<'a> Renderer<'a> {
         };
         // A solid is filled with a quantised colour: only masks can take it off the grid.
         let solid = matches!(layer.source, LayerSource::Solid { .. });
-        if masks::apply(ctx, layer, &mut buf, self.mask_blur(ctx, layer)) || !solid {
+        if masks::apply_cached(ctx, layer, &mut buf, self.mask_blur(ctx, layer), self.cache) || !solid {
             self.pipe.quantize(&mut buf.img);
         }
         Some(buf)
@@ -1690,13 +1697,27 @@ impl<'a> Renderer<'a> {
     /// [`Self::composite_iso`] with the track matte's pixels already drawn (`matte`, e.g. a 3D
     /// matte seen through the camera); otherwise the matte layer is placed in 2D.
     pub(crate) fn composite_iso_with(&self, ctx: &EvalCtx, layer: &Layer, mut iso: Image, canvas: &mut Image, opacity: f32, matte_img: Option<Image>) {
-        let matte = layer.track_matte.and_then(|tm| ctx.comp.layer(tm.layer).filter(|m| m.id != layer.id).map(|m| (m, tm.kind)));
+        self.apply_track_matte(ctx, layer, &mut iso, matte_img);
         let preserve = layer.preserve_transparency;
+        if preserve {
+            iso.data.par_iter_mut().zip(canvas.data.par_iter()).for_each(|(p, q)| {
+                for c in p.iter_mut() {
+                    *c *= q[3];
+                }
+            });
+        }
+        canvas.blend_from(&iso, layer.blend_mode, opacity, layer.id.0 as u32);
+    }
+
+    /// Clip comp-space pixels with the referenced layer, including a hidden matte's masks,
+    /// effects, transform and opacity. This also limits adjustment-layer effect coverage.
+    fn apply_track_matte(&self, ctx: &EvalCtx, layer: &Layer, iso: &mut Image, matte_img: Option<Image>) {
+        let matte = layer.track_matte.and_then(|tm| ctx.comp.layer(tm.layer).filter(|m| m.id != layer.id).map(|m| (m, tm.kind)));
         if let Some((m, kind)) = matte {
             let mimg = match matte_img {
-                Some(i) if i.width == canvas.width && i.height == canvas.height => i,
+                Some(i) if i.width == iso.width && i.height == iso.height => i,
                 _ => {
-                    let mut mimg = Image::new(canvas.width, canvas.height);
+                    let mut mimg = Image::new(iso.width, iso.height);
                     if m.is_active_at(ctx.time)
                         && let Some(mb) = self.layer_buf(ctx, m)
                     {
@@ -1719,22 +1740,15 @@ impl<'a> Renderer<'a> {
                 }
             });
         }
-        if preserve {
-            iso.data.par_iter_mut().zip(canvas.data.par_iter()).for_each(|(p, q)| {
-                for c in p.iter_mut() {
-                    *c *= q[3];
-                }
-            });
-        }
-        canvas.blend_from(&iso, layer.blend_mode, opacity, layer.id.0 as u32);
     }
 
     /// Adjustment layer: effects applied to the comp below, limited to the layer's footprint.
     fn draw_adjustment(&self, ctx: &EvalCtx, layer: &Layer, canvas: &mut Image, opacity: f32) {
         let Some(mut foot) = self.source(ctx, layer) else { return };
-        let _ = masks::apply(ctx, layer, &mut foot, self.mask_blur(ctx, layer));
+        let _ = masks::apply_cached(ctx, layer, &mut foot, self.mask_blur(ctx, layer), self.cache);
         let mut matte = Image::new(canvas.width, canvas.height);
         self.place(ctx, layer, &foot, &mut matte, BlendMode::Normal, 1.0);
+        self.apply_track_matte(ctx, layer, &mut matte, None);
         let o = self.roi_offset().map(|(x, y, _, _)| [-x, -y]).unwrap_or([0.0; 2]);
         let mut below = Buf { img: canvas.clone(), offset: o, scale: self.opts.scale };
         // Effects run in the working space, not the linear blending space.
@@ -1902,7 +1916,7 @@ impl<'a> Renderer<'a> {
             return Some(b);
         }
         let mut foot = self.source(ctx, layer)?;
-        let _ = masks::apply(ctx, layer, &mut foot, self.mask_blur(ctx, layer));
+        let _ = masks::apply_cached(ctx, layer, &mut foot, self.mask_blur(ctx, layer), self.cache);
         let foot = Arc::new(foot);
         if let (Some(c), Some(k)) = (self.cache, key) {
             c.insert(k, foot.clone());

@@ -217,7 +217,7 @@ fn levels_ic(ctx: &EffectCtx, mut b: Buf) -> Buf {
         return b;
     }
     let clip = crate::color_fx::levels_clip(ctx);
-    map_ca(&mut b.img, |c, a| ([0, 1, 2].map(|i| lv[i + 1].apply(lv[0].apply(c[i], clip), clip)), lv[4].apply(a, clip).clamp(0.0, 1.0)));
+    map_ca(&mut b.img, |c, a| ([0, 1, 2].map(|i| lv[0].apply(lv[i + 1].apply(c[i], clip), clip)), lv[4].apply(a, clip).clamp(0.0, 1.0)));
     b
 }
 

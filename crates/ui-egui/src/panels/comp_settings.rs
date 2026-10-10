@@ -11,10 +11,10 @@ use crate::theme::Tokens;
 
 /// AE's composition presets: (name, width, height, pixel aspect, fps). "Custom" is implicit.
 pub const PRESETS: &[(&str, u32, u32, f64, f64)] = &[
-    ("Social Media Portrait HD · 1080x1920 · 30 fps", 1080, 1920, 1.0, 30.0),
-    ("Social Media Landscape HD · 1920x1080 · 30 fps", 1920, 1080, 1.0, 30.0),
-    ("Social Media Square · 1080x1080 · 30 fps", 1080, 1080, 1.0, 30.0),
-    ("Social Media Portrait · 1080x1350 · 30 fps", 1080, 1350, 1.0, 30.0),
+    ("Portrait HD · 1080x1920 · 30 fps", 1080, 1920, 1.0, 30.0),
+    ("Landscape HD · 1920x1080 · 30 fps", 1920, 1080, 1.0, 30.0),
+    ("Square · 1080x1080 · 30 fps", 1080, 1080, 1.0, 30.0),
+    ("Portrait · 1080x1350 · 30 fps", 1080, 1350, 1.0, 30.0),
     ("NTSC DV", 720, 480, 0.9091, 29.97),
     ("NTSC DV Widescreen", 720, 480, 1.2121, 29.97),
     ("NTSC D1", 720, 486, 0.9091, 29.97),
@@ -351,12 +351,12 @@ pub fn show(ui: &mut egui::Ui, d: &mut CompDraft, t: &Tokens, auto: &mut Registr
     ui.add_space(14.0);
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let r = ui.add(egui::Button::new(egui::RichText::new("   OK   ").color(Color32::WHITE)).fill(t.accent));
+            let r = ui.add(egui::Button::new(egui::RichText::new("OK").color(Color32::WHITE)).min_size(vec2(80.0, 28.0)).fill(t.accent));
             auto.add("dialog.comp.ok", r.rect, "OK");
             if r.clicked() {
                 out = Some(params(d));
             }
-            let r = ui.button("Cancel");
+            let r = ui.add(egui::Button::new("Cancel").min_size(vec2(80.0, 28.0)));
             auto.add("dialog.comp.cancel", r.rect, "Cancel");
             if r.clicked() {
                 out = Some(serde_json::Value::Null);

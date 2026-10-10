@@ -23,9 +23,13 @@ pub fn dropdown(app: &mut EffectcraftApp, ui: &mut egui::Ui, r: Rect, auto: &str
 pub fn checkbox(app: &mut EffectcraftApp, ui: &mut egui::Ui, at: egui::Pos2, auto: &str, text: &str, on: bool) -> bool {
     let t = app.tokens;
     let r = Rect::from_min_size(at, vec2(16.0, 16.0));
-    let clicked = widgets::checkbox(ui, r, on, &t, egui::Id::new(("kit-cb", auto))).clicked();
-    ui.painter().text(pos2(r.max.x + 6.0, r.center().y), Align2::LEFT_CENTER, text, Tokens::ui(12.0), t.text);
-    let full = Rect::from_min_size(at, vec2(22.0 + text.len() as f32 * 6.5, 16.0));
+    let width = ui.painter().layout_no_wrap(text.to_owned(), Tokens::ui(12.0), t.text).size().x;
+    let full = Rect::from_min_size(at, vec2((22.0 + width).min((ui.clip_rect().right() - at.x).max(16.0)), 16.0));
+    // Both the square and its label are clickable, with the same hit area exposed to agents.
+    let response = ui.interact(full, egui::Id::new(("kit-cb", auto)), egui::Sense::click());
+    let square = widgets::checkbox(ui, r, on, &t, egui::Id::new(("kit-cb-paint", auto)));
+    widgets::text_fit(ui.painter(), pos2(r.max.x + 6.0, r.center().y), Align2::LEFT_CENTER, text, Tokens::ui(12.0), (full.width() - 22.0).max(0.0), t.text);
+    let clicked = response.clicked() || square.clicked();
     app.auto.add(auto, full, text);
     if clicked { !on } else { on }
 }
@@ -40,7 +44,15 @@ pub fn button(app: &mut EffectcraftApp, ui: &mut egui::Ui, r: Rect, auto: &str, 
 
 /// A dimmed label at (x, y-row).
 pub fn label(ui: &egui::Ui, at: egui::Pos2, text: &str, t: &Tokens) {
-    ui.painter().text(pos2(at.x, at.y + 9.0), Align2::LEFT_CENTER, text, Tokens::ui(12.0), t.text_dim);
+    widgets::text_fit(
+        ui.painter(),
+        pos2(at.x, at.y + 9.0),
+        Align2::LEFT_CENTER,
+        text,
+        Tokens::ui(12.0),
+        (ui.clip_rect().right() - at.x - 8.0).max(0.0),
+        t.text_dim,
+    );
 }
 
 /// A draggable number; returns the new value.

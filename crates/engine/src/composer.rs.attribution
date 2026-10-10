@@ -1,0 +1,8 @@
+asset:        composer.rs
+title:        Original Motion Composer animation presets and procedural previews
+author:       EffectCraft contributors
+source:       original work
+license:      MIT OR Apache-2.0
+license-file: LICENSE-MIT; LICENSE-APACHE
+added:        2026-10-10 by EffectCraft contributors
+notes:        Authored from generic mathematical motion conventions; no Mister Horse or Adobe code, artwork, or preset data used.

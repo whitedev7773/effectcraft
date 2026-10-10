@@ -3,6 +3,14 @@ Copyright (c) 2026 ArtCraft Team and the EffectCraft contributors.
 Licensed under the MIT License or the Apache License, Version 2.0, at your option
 (LICENSE-MIT, LICENSE-APACHE).
 
+Customized version
+
+This project was cloned from https://github.com/storytold/effectcraft and modified for a
+specific usage environment and its requirements. This is an unofficial customized version.
+Modifications include UI fonts and icons, panel styling, render queue controls and editor
+layout, and removal of promotional UI. Original authorship, copyright notices
+and applicable licenses are retained.
+
 The ArtCraft name, wordmark and logos in docs/brand/ are trademarks of the ArtCraft Team. They are
 not open source and are not covered by the license above; their terms are in
 docs/brand/LICENSE-brand.txt.
@@ -15,3 +23,5 @@ list (author, source, license) is in ATTRIBUTION.md.
 Inter (assets/fonts/Inter-*.ttf) — SIL Open Font License 1.1. See assets/fonts/OFL-Inter.txt.
 Noto Serif (assets/fonts/NotoSerif-Regular.ttf) — SIL Open Font License 1.1. See assets/fonts/OFL-NotoSerif.txt.
 JetBrains Mono (assets/fonts/JetBrainsMono-Regular.ttf) — SIL Open Font License 1.1. See assets/fonts/OFL-JetBrainsMono.txt.
+Wanted Sans (assets/fonts/WantedSans-*.ttf) — SIL Open Font License 1.1. See assets/fonts/OFL-WantedSans.txt.
+Gravity UI Icons (assets/icons/gravity/*.svg) — MIT License. See assets/icons/gravity/LICENSE.txt.

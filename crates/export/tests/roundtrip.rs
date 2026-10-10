@@ -330,6 +330,49 @@ fn cancel_stops_early() {
     assert_eq!(written, 0, "cancelled before the first batch");
 }
 
+#[test]
+fn movie_batches_keep_frame_order_and_cancel_after_encoding_starts() {
+    let (mut p, cid) = project(None);
+    let duration = Tick::from_seconds_f64(8.0);
+    let c = p.comp_mut(cid).unwrap();
+    c.duration = duration;
+    for layer in &mut c.layers {
+        layer.out_point = duration;
+    }
+    let d = out_dir("overlapped-movie");
+    let s = settings();
+    let om = OutputModule::for_format(OutputFormat::H264);
+    let path = d.join("ordered.mp4").to_string_lossy().to_string();
+    let mut job = Job {
+        project: &p,
+        footage: &NoFootage,
+        expr: None,
+        accel: None,
+        comp: cid,
+        settings: &s,
+        output: &om,
+        path: &path,
+        sink: None,
+        options: Default::default(),
+        nested_switches: true,
+    };
+    let mut last = 0;
+    let report = export(&job, &mut |progress| {
+        assert!(progress.done >= last);
+        last = progress.done;
+        true
+    })
+    .unwrap();
+    assert_eq!(report.frames, 80);
+    assert_eq!(last, 80);
+    decode_movie(Path::new(&path), 80, 0.07);
+
+    let cancelled = d.join("cancelled.mp4").to_string_lossy().to_string();
+    job.path = &cancelled;
+    let result = export(&job, &mut |progress| progress.done < 32);
+    assert!(matches!(result, Err(effectcraft_export::ExportError::Cancelled)));
+}
+
 /// 16-bit stereo WAV with a 440 Hz sine at amplitude 0.5 (left) and silence (right).
 fn write_tone(path: &Path, secs: f64) {
     let sr = 48_000u32;

@@ -92,6 +92,7 @@ fn tiles_kaleida_repetile() {
     effect_case("ec.stylize.cckaleida", &[("mirroring", e(2)), ("rotation", n(20.0)), ("size", n(150.0))]);
     effect_case("ec.stylize.ccrepetile", &[("expandRight", n(10.0)), ("expandUp", n(4.0))]);
     effect_case("ec.stylize.ccrepetile", &[("expandLeft", n(12.0)), ("expandDown", n(9.0)), ("tiling", e(1))]);
+    effect_case("ec.stylize.ccrepetile", &[("expandLeft", n(12.0)), ("expandRight", n(12.0)), ("expandUp", n(9.0)), ("expandDown", n(9.0)), ("tiling", e(3))]);
     effect_case("ec.stylize.ccrepetile", &[("expandLeft", n(30.0)), ("expandRight", n(30.0)), ("expandUp", n(20.0)), ("tiling", e(4))]);
     effect_case("ec.distort.cctiler", &[]);
     effect_case("ec.distort.cctiler", &[("scale", n(70.0)), ("blendWithOriginal", n(30.0)), ("center", pt(30.0, 18.0))]);

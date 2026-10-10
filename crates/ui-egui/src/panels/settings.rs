@@ -41,10 +41,17 @@ fn reg(app: &mut EffectcraftApp, id: &str, r: &egui::Response, label: &str) {
     app.auto.add(id, r.rect, label);
 }
 
+fn setting_label(ui: &mut egui::Ui, width: f32, text: &str) {
+    let (rect, response) = ui.allocate_exact_size(vec2(width, 26.0), egui::Sense::hover());
+    crate::widgets::text_fit(ui.painter(), rect.left_center(), egui::Align2::LEFT_CENTER, text, Tokens::ui(12.0), width, ui.visuals().text_color());
+    response.on_hover_text(text);
+}
+
 /// One page's rows.
 fn page_ui(app: &mut EffectcraftApp, ui: &mut egui::Ui, page: &Page, cur: &Value, t: &Tokens, acts: &mut Vec<Act>) {
     let get = |key: &str| cur.pointer(&format!("/{}", key.replace('.', "/"))).cloned().unwrap_or(Value::Null);
-    let label_w = 250.0;
+    let label_w = (ui.available_width() * 0.42).clamp(96.0, 240.0);
+    let field_w = (ui.available_width() - label_w - 8.0).max(60.0);
     for item in &page.items {
         match *item {
             Item::Section(title) => {
@@ -69,9 +76,9 @@ fn page_ui(app: &mut EffectcraftApp, ui: &mut egui::Ui, page: &Page, cur: &Value
                 let devices: Vec<String> = app.hooks.audio_devices.as_ref().map(|f| f()).unwrap_or_default();
                 let sel = get(key).as_str().unwrap_or("").to_string();
                 ui.horizontal(|ui| {
-                    ui.add_sized(vec2(label_w, 18.0), egui::Label::new("Default Output:"));
+                    setting_label(ui, label_w, "Default output");
                     let shown = if sel.is_empty() { "System Default".to_string() } else { sel.clone() };
-                    let r = egui::ComboBox::from_id_salt(("settings", key)).selected_text(shown).width(260.0).show_ui(ui, |ui| {
+                    let r = egui::ComboBox::from_id_salt(("settings", key)).selected_text(shown).width(field_w).show_ui(ui, |ui| {
                         if ui.selectable_label(sel.is_empty(), "System Default").clicked() {
                             acts.push(Act::Set(key.into(), json!("")));
                         }
@@ -103,7 +110,7 @@ fn page_ui(app: &mut EffectcraftApp, ui: &mut egui::Ui, page: &Page, cur: &Value
                     }
                     _ => {
                         ui.horizontal(|ui| {
-                            ui.add_sized(vec2(label_w, 18.0), egui::Label::new(format!("{label}:")).truncate());
+                            setting_label(ui, label_w, label);
                             let r = match kind {
                                 Kind::Int(lo, hi, unit) => {
                                     let mut x = v.as_i64().unwrap_or(0);
@@ -145,7 +152,7 @@ fn page_ui(app: &mut EffectcraftApp, ui: &mut egui::Ui, page: &Page, cur: &Value
                                     let shown = opts.iter().find(|o| o.1 == curv).map(|o| o.0).unwrap_or(curv.as_str()).to_string();
                                     egui::ComboBox::from_id_salt(("settings", key))
                                         .selected_text(shown)
-                                        .width(220.0)
+                                        .width(field_w)
                                         .show_ui(ui, |ui| {
                                             for (l, val) in opts {
                                                 if ui.selectable_label(*val == curv, *l).clicked() {
@@ -157,7 +164,9 @@ fn page_ui(app: &mut EffectcraftApp, ui: &mut egui::Ui, page: &Page, cur: &Value
                                 }
                                 Kind::Text | Kind::Path => {
                                     let mut s = v.as_str().unwrap_or("").to_string();
-                                    let r = ui.add(egui::TextEdit::singleline(&mut s).desired_width(if kind == Kind::Path { 230.0 } else { 260.0 }));
+                                    let r = ui.add(
+                                        egui::TextEdit::singleline(&mut s).desired_width((field_w - if kind == Kind::Path { 90.0 } else { 8.0 }).max(40.0)),
+                                    );
                                     if r.changed() {
                                         acts.push(Act::Set(key.into(), json!(s)));
                                     }
@@ -428,15 +437,18 @@ pub fn show(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
     let mut acts: Vec<Act> = vec![];
     let (mut ok, mut cancel) = (false, false);
     super::dialogs::modal(ctx, "Settings", vec2(820.0, 600.0), t, |ui| {
-        let body_h = (ctx.content_rect().height() - 170.0).clamp(120.0, 470.0);
+        let body_h = (ctx.content_rect().height() - 238.0).clamp(120.0, 440.0);
+        let body_width = ui.available_width();
+        let navigation_width = (body_width * 0.25).clamp(120.0, 180.0);
+        let page_width = (body_width - navigation_width - 28.0).max(100.0);
         ui.allocate_ui_with_layout(vec2(ui.available_width(), body_h), egui::Layout::left_to_right(egui::Align::Min), |ui| {
             ui.set_height(body_h);
             // Page list (left, like After Effects).
             ui.vertical(|ui| {
-                ui.set_width(180.0);
+                ui.set_width(navigation_width);
                 egui::ScrollArea::vertical().id_salt("settings-pages").max_height(body_h).auto_shrink([false, false]).show(ui, |ui| {
                     for p in &all {
-                        let (r, resp) = ui.allocate_exact_size(vec2(176.0, 24.0), egui::Sense::click());
+                        let (r, resp) = ui.allocate_exact_size(vec2(navigation_width - 8.0, 26.0), egui::Sense::click());
                         let sel = page == p.id;
                         if sel {
                             ui.painter().rect_filled(r, 3.0, t.accent);
@@ -459,7 +471,7 @@ pub fn show(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
             });
             ui.separator();
             ui.vertical(|ui| {
-                ui.set_width(590.0);
+                ui.set_width(page_width);
                 let p = &all[idx];
                 ui.label(RichText::new(p.title).font(Tokens::semibold(14.0)).color(t.tab_text_active));
                 ui.add_space(6.0);
@@ -482,10 +494,10 @@ pub fn show(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
                 page = all[idx + 1].id.to_string();
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let r = ui.add(egui::Button::new(RichText::new("   OK   ").color(Color32::WHITE)).fill(t.accent));
+                let r = ui.add(egui::Button::new(RichText::new("OK").color(Color32::WHITE)).min_size(vec2(80.0, 28.0)).fill(t.accent));
                 app.auto.add("settings.ok", r.rect, "OK");
                 ok |= r.clicked();
-                let r = ui.button("Cancel");
+                let r = ui.add(egui::Button::new("Cancel").min_size(vec2(80.0, 28.0)));
                 app.auto.add("settings.cancel", r.rect, "Cancel");
                 cancel |= r.clicked();
             });

@@ -788,10 +788,47 @@ impl TextDoc {
         self.set_paras(paras);
     }
 
-    /// Replace the whole text, keeping the first character's style and the paragraph settings.
+    /// Replace the whole text. When the paragraph count stays the same, each replacement
+    /// paragraph inherits the corresponding paragraph's leading character style.
     pub fn set_text(&mut self, s: &str) {
         if self.runs.is_empty() && self.paragraphs.is_empty() {
             self.text = s.to_string();
+            return;
+        }
+        // Source Text scripts commonly replace the words in a styled multi-line template.
+        // Retain the line styles even when the new lines have different lengths. CR is AE's
+        // paragraph separator; also accept LF and CRLF for documents from other sources.
+        let cr_mode = self.text.contains('\r') && s.contains('\r');
+        let line_spans = |text: &str| {
+            let mut chars = text.chars().peekable();
+            let mut spans = Vec::new();
+            let mut start = 0;
+            let mut i = 0;
+            while let Some(c) = chars.next() {
+                i += 1;
+                if (cr_mode && c == '\r') || (!cr_mode && c == '\n') {
+                    if c == '\r' && chars.peek() == Some(&'\n') {
+                        chars.next();
+                        i += 1;
+                    }
+                    spans.push((start, i));
+                    if spans.len() > 10_000 {
+                        return None;
+                    }
+                    start = i;
+                }
+            }
+            spans.push((start, i));
+            Some(spans)
+        };
+        if !self.runs.is_empty()
+            && let (Some(old_lines), Some(new_lines)) = (line_spans(&self.text), line_spans(s))
+            && old_lines.len() > 1
+            && old_lines.len() == new_lines.len()
+        {
+            let styles: Vec<_> = old_lines.iter().map(|(start, _)| self.style_at(*start)).collect();
+            self.text = s.to_string();
+            self.set_runs(new_lines.iter().zip(styles).map(|((start, end), style)| StyleRun { len: end - start, style }).collect());
             return;
         }
         let n = self.char_len();
@@ -1252,6 +1289,21 @@ mod tests {
         d.apply_style(0..11, |s| s.size = 10.0);
         assert!(d.is_uniform());
         assert_eq!(d.size, 10.0);
+    }
+
+    #[test]
+    fn whole_text_replacement_preserves_mixed_line_fonts() {
+        let mut d = TextDoc::plain("日本語\rroman\r한국어");
+        let n = d.char_len();
+        d.apply_style(4..n, |s| s.font = "A2Z-Bold".into());
+        d.set_text("長い日本語の行\rEnglish\r새로운 한국어 가사");
+        let starts: Vec<usize> = d.text.chars().enumerate().filter_map(|(i, c)| (i == 0 || c == '\r').then_some(i + usize::from(c == '\r'))).collect();
+        assert_eq!(d.style_at(starts[0]).font, "Inter");
+        assert_eq!(d.style_at(starts[1]).font, "A2Z-Bold");
+        assert_eq!(d.style_at(starts[2]).font, "A2Z-Bold");
+        d.set_text("別の日本語\r\n\r새 가사");
+        let last_line = d.text.chars().enumerate().filter_map(|(i, c)| (c == '\r').then_some(i + 1)).last();
+        assert_eq!(last_line.map(|i| d.style_at(i).font).as_deref(), Some("A2Z-Bold"));
     }
 
     #[test]

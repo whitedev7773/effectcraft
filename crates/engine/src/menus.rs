@@ -1201,6 +1201,7 @@ Window
   ---
   Create Nulls From Paths | window.panel {"panel":"createNullsFromPaths"}
   Ease Presets | window.panel {"panel":"easePresets"}
+  Motion Composer | window.panel {"panel":"motionComposer"}
   VR Comp Editor | window.panel {"panel":"vrCompEditor"}
   @dynamic:scriptPanels
 Help
@@ -1218,7 +1219,6 @@ Help
   Enable Logging | help.enableLogging
   Reveal Logging File | help.revealLogFile
   ---
-  Join the ArtCraft Discord... | help.discord
   Provide Feedback... | help.reportIssue
   ---
   ArtCraft Website | help.website

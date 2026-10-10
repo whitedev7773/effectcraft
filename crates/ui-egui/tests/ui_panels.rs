@@ -36,6 +36,15 @@ fn click(h: &mut Harness<'_, EffectcraftApp>, id: &str) {
 }
 
 #[test]
+fn compact_shortcut_dialog_close_button_is_visible_and_clickable() {
+    let mut h = Harness::builder().with_size(egui::vec2(1024.0, 768.0)).build_eframe(|_| EffectcraftApp::new(Session::default()));
+    h.state_mut().dialog = Some(effectcraft_ui_egui::Dialog::Shortcuts);
+    h.run_steps(4);
+    click(&mut h, "shortcuts.close");
+    assert!(h.state().dialog.is_none(), "the footer button must receive clicks without scrolling the whole dialog");
+}
+
+#[test]
 fn window_menu_opens_the_new_panels() {
     let mut h = harness();
     for (name, kind, auto) in [

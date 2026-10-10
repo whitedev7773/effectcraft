@@ -1,5 +1,7 @@
 # Attribution
 
+| `crates/engine/src/composer.rs` | EffectCraft contributors | Original work: motion presets and procedural previews | MIT OR Apache-2.0 |
+
 Every non-code asset in EffectCraft, with its author, source and licence. Each file listed here also has
 a `<file>.attribution` sidecar with full details. The rules are in [AGENTS.md](AGENTS.md) §1: no Adobe
 iconography, images or other Adobe assets; open licences only; every asset attributed.
@@ -9,6 +11,9 @@ iconography, images or other Adobe assets; open licences only; every asset attri
 
 | Asset | Author | Source | Licence |
 |---|---|---|---|
+| `assets/fonts/WantedSans-Regular.ttf` | The Wanted Sans Project Authors | https://github.com/wanteddev/wanted-sans | OFL-1.1 (`assets/fonts/OFL-WantedSans.txt`) |
+| `assets/fonts/WantedSans-Medium.ttf` | The Wanted Sans Project Authors | https://github.com/wanteddev/wanted-sans | OFL-1.1 (`assets/fonts/OFL-WantedSans.txt`) |
+| `assets/fonts/WantedSans-SemiBold.ttf` | The Wanted Sans Project Authors | https://github.com/wanteddev/wanted-sans | OFL-1.1 (`assets/fonts/OFL-WantedSans.txt`) |
 | `assets/fonts/Inter-Regular.ttf` | The Inter Project Authors | https://github.com/rsms/inter | OFL-1.1 (`assets/fonts/OFL-Inter.txt`) |
 | `assets/fonts/Inter-Medium.ttf` | The Inter Project Authors | https://github.com/rsms/inter | OFL-1.1 (`assets/fonts/OFL-Inter.txt`) |
 | `assets/fonts/Inter-SemiBold.ttf` | The Inter Project Authors | https://github.com/rsms/inter | OFL-1.1 (`assets/fonts/OFL-Inter.txt`) |
@@ -53,13 +58,15 @@ Screenshots of EffectCraft itself, rendered headlessly, showing only procedurall
 | `docs/images/effectcraft-3d.png` | EffectCraft contributors | Original work: screenshot of EffectCraft (EffectCraft Classic 3D) | MIT OR Apache-2.0 |
 | `docs/images/effectcraft-graph-editor.png` | EffectCraft contributors | Original work: screenshot of EffectCraft (EffectCraft Graph Editor) | MIT OR Apache-2.0 |
 | `docs/images/effectcraft-effects.png` | EffectCraft contributors | Original work: screenshot of EffectCraft (EffectCraft effects) | MIT OR Apache-2.0 |
-| `docs/images/effectcraft-render-queue.png` | EffectCraft contributors | Original work: screenshot of EffectCraft (EffectCraft Render Queue panel with the demo compositions queued for H.264 and ProRes export) | MIT OR Apache-2.0 |
+| `docs/images/effectcraft-render-queue.png` | EffectCraft contributors | Original work: screenshot of EffectCraft (EffectCraft Render Queue panel with the demo compositions queued for PNG sequence export) | MIT OR Apache-2.0 |
 
 ## Code-drawn assets (original work, MIT OR Apache-2.0)
 
-- UI icons drawn in code: `crates/ui-egui/src/icons.rs`.
+- Launch splash ribbons and motion-path symbol: `crates/ui-egui/src/splash.rs` (original parametric artwork; sidecar `.attribution`).
+- Specialised UI icons and fallback drawings: `crates/ui-egui/src/icons.rs`. General UI icons
+  use Gravity UI (MIT), listed below and embedded by `crates/ui-egui/src/gravity_icons.rs`.
 - Procedural demo content (solids, shapes, gradients, text animations): `crates/engine/src/demo.rs`.
-- Built-in project templates (Lower Third, Title Card, Logo Reveal, Kinetic Type, Social Square, Vertical Story,
+- Built-in project templates (Lower Third, Title Card, Logo Reveal, Kinetic Type, Square Title, Vertical Story,
   Slideshow, 3D Text Orbit) built from engine commands, and their thumbnails rendered by our own renderer:
   `crates/engine/src/templates.rs`.
 - Text animator presets (Typewriter, Fade Up Characters, Bounce In Words, Tracking In, Scramble, Blur In, Jitter,
@@ -115,3 +122,67 @@ under [`docs/brand/LICENSE-brand.txt`](docs/brand/LICENSE-brand.txt). Forks and 
 | `docs/brand/artcraft-mark-black.svg` | ArtCraft Team | Original work: first-party ArtCraft brand mark (ArtCraft symbol ("A" mark), black) | ArtCraft brand terms, not open source (`docs/brand/LICENSE-brand.txt`) |
 | `docs/brand/artcraft-mark.png` | ArtCraft Team | Original work: first-party ArtCraft brand mark (ArtCraft symbol ("A" mark), blue) | ArtCraft brand terms, not open source (`docs/brand/LICENSE-brand.txt`) |
 | `docs/brand/artcraft-mark.svg` | ArtCraft Team | Original work: first-party ArtCraft brand mark (ArtCraft symbol ("A" mark), blue) | ArtCraft brand terms, not open source (`docs/brand/LICENSE-brand.txt`) |
+
+## Gravity UI icons
+
+| Asset | Author | Source | Licence |
+|---|---|---|---|
+| `assets/icons/gravity/arrow-left-to-line.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/arrow-right-to-line.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/arrow-rotate-left.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/arrows-expand.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/arrows-opposite-to-dots.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/arrows-rotate-right.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/backward-step.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/bars.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/bulb.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/camera.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/chart-line.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/chevron-down.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/chevron-left.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/chevron-right.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/circle.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/circle-fill.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/circles-intersection.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/code.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/copy.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/crop.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/cube.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/diamond-fill.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/eraser.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/eye.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/eye-closed.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/filmstrip.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/folder.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/folder-plus.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/font.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/forward-step.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/function.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/gear.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/globe.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/hand.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/house.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/layout-cells.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/link.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/lock.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/magnifier.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/minus.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/music-note.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/nodes-down.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/paintbrush.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/pause-fill.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/picture.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/play-fill.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/plus.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/shapes-3.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/sparkles.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/square.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/square-dashed.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/square-fill.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/square-plus.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/star.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/stopwatch.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/trash-bin.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/video.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/volume.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |
+| `assets/icons/gravity/xmark.svg` | YANDEX LLC and Gravity UI contributors | https://github.com/gravity-ui/icons | MIT (`assets/icons/gravity/LICENSE.txt`) |

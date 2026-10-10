@@ -21,7 +21,7 @@ use crate::{EffectcraftApp, widgets};
 
 type Actions = Vec<(String, serde_json::Value)>;
 
-const ROW_H: f32 = 22.0;
+const ROW_H: f32 = 28.0;
 const PAD: f32 = 12.0;
 
 /// Text Animation › Add Animator entries: (menu label, `layer.addTextAnimator` property; `""`
@@ -65,7 +65,7 @@ pub fn show(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let now = app.session.time();
     let ectx = EvalCtx { project: &project, comp_id: cid, comp: &comp, time: now, expr: expr.as_deref(), footage: None };
     let x0 = rect.min.x + PAD;
-    let w = rect.width() - 2.0 * PAD;
+    let w = (rect.width() - 2.0 * PAD).clamp(0.0, 520.0);
     let scroll = widgets::PanelScroll::begin(ui, egui::Id::new("props-scroll"), rect);
     let top = rect.min.y + 8.0 - scroll.offset;
     let mut y = top;
@@ -229,8 +229,8 @@ fn transform_row(app: &mut EffectcraftApp, ui: &mut egui::Ui, p: &egui::Painter,
             actions.push(("prop.toggleAnimation".into(), json!({"layer": lid, "prop": uid})));
         }
     }
-    p.text(pos2(r.min.x + 42.0, cy), Align2::LEFT_CENTER, &pr.name, Tokens::ui(12.0), t.text);
     let vx = r.min.x + (r.width() * 0.5).max(130.0);
+    widgets::text_fit(p, pos2(r.min.x + 42.0, cy), Align2::LEFT_CENTER, &pr.name, Tokens::ui(12.0), (vx - r.min.x - 54.0).max(0.0), t.text);
     let merge = format!("props-{uid}");
     let set = |actions: &mut Actions, v: serde_json::Value| actions.push(("prop.set".into(), json!({"layer": lid, "prop": uid, "value": v, "merge": merge})));
     let value = ectx.value(layer, pr);
@@ -316,7 +316,7 @@ fn text_section(
     section_header(app, ui, p, x0, w, y, "Text", "properties.text");
     y += ROW_H + 4.0;
     // Font family and style.
-    let fr = Rect::from_min_size(pos2(x0, y), vec2(w, 22.0));
+    let fr = Rect::from_min_size(pos2(x0, y), vec2(w, 26.0));
     let pop = egui::Id::new("props-font-pop");
     if widgets::dropdown(ui, fr, &doc.font, &t, egui::Id::new("props-font")).clicked() {
         widgets::open_popup(ui, pop);
@@ -327,8 +327,8 @@ fn text_section(
     if let Some(f) = widgets::popup_menu(ui, pop, fr.left_bottom(), &fams, fams.iter().position(|f| *f == doc.font)).and_then(|i| fams.get(i)) {
         set(actions, json!({"font": f}));
     }
-    y += 28.0;
-    let sr = Rect::from_min_size(pos2(x0, y), vec2(w, 22.0));
+    y += 34.0;
+    let sr = Rect::from_min_size(pos2(x0, y), vec2(w, 26.0));
     let spop = egui::Id::new("props-style-pop");
     if widgets::dropdown(ui, sr, &doc.style, &t, egui::Id::new("props-style")).clicked() {
         widgets::open_popup(ui, spop);
@@ -339,28 +339,28 @@ fn text_section(
     if let Some(st) = widgets::popup_menu(ui, spop, sr.left_bottom(), &styles, styles.iter().position(|s| *s == doc.style)).and_then(|i| styles.get(i)) {
         set(actions, json!({"style": st}));
     }
-    y += 32.0;
+    y += 38.0;
     // Size / leading, tracking / stroke width.
     let col2 = x0 + w / 2.0;
     let field = |app: &mut EffectcraftApp, ui: &mut egui::Ui, x: f32, y: f32, glyph: &str, key: &str, v: f64, range: (f64, f64), suffix: &str| {
-        p.text(pos2(x, y + 9.0), Align2::LEFT_CENTER, glyph, Tokens::semibold(11.0), t.text_dim);
-        let (r, nv, _) = widgets::hot_number_at(ui, pos2(x + 26.0, y), egui::Id::new(("props-text", key)), v, 0.5, range, decimals(v), suffix, &t);
+        widgets::text_fit(p, pos2(x, y), Align2::LEFT_TOP, glyph, Tokens::ui(11.0), (w / 2.0 - 12.0).max(0.0), t.text_dim);
+        let (r, nv, _) = widgets::hot_number_at(ui, pos2(x, y + 19.0), egui::Id::new(("props-text", key)), v, 0.5, range, decimals(v), suffix, &t);
         app.auto.add(&format!("properties.text.{key}"), r, key);
         nv
     };
-    if let Some(v) = field(app, ui, x0, y, "T", "size", doc.size, (1.0, 2000.0), " px") {
+    if let Some(v) = field(app, ui, x0, y, "Font size", "size", doc.size, (1.0, 2000.0), " px") {
         set(actions, json!({"size": v, "merge": "props-text-size"}));
     }
     match doc.leading {
         Some(l) => {
-            if let Some(v) = field(app, ui, col2, y, "A", "leading", l, (0.0, 5000.0), " px") {
+            if let Some(v) = field(app, ui, col2, y, "Line spacing", "leading", l, (0.0, 5000.0), " px") {
                 set(actions, json!({"leading": v, "merge": "props-text-leading"}));
             }
         }
         None => {
             // Auto Leading: click to switch to an explicit value (120% of the size).
-            p.text(pos2(col2, y + 9.0), Align2::LEFT_CENTER, "A", Tokens::semibold(11.0), t.text_dim);
-            let r = Rect::from_min_size(pos2(col2 + 26.0, y), vec2(40.0, 18.0));
+            p.text(pos2(col2, y), Align2::LEFT_TOP, "Line spacing", Tokens::ui(11.0), t.text_dim);
+            let r = Rect::from_min_size(pos2(col2, y + 19.0), vec2(40.0, 18.0));
             let resp = ui.interact(r, egui::Id::new("props-leading-auto"), Sense::click());
             p.text(pos2(r.min.x + 2.0, r.center().y), Align2::LEFT_CENTER, "Auto", Tokens::ui(12.0), if resp.hovered() { t.accent_hover } else { t.hot_text });
             app.auto.add("properties.text.leading", r, "leading");
@@ -369,14 +369,14 @@ fn text_section(
             }
         }
     }
-    y += 26.0;
-    if let Some(v) = field(app, ui, x0, y, "VA", "tracking", doc.tracking, (-1000.0, 10000.0), "") {
+    y += 48.0;
+    if let Some(v) = field(app, ui, x0, y, "Tracking", "tracking", doc.tracking, (-1000.0, 10000.0), "") {
         set(actions, json!({"tracking": v.round(), "merge": "props-text-tracking"}));
     }
-    if let Some(v) = field(app, ui, col2, y, "W", "strokeWidth", doc.stroke_width, (0.0, 500.0), " px") {
+    if let Some(v) = field(app, ui, col2, y, "Stroke width", "strokeWidth", doc.stroke_width, (0.0, 500.0), " px") {
         set(actions, json!({"strokeWidth": v, "merge": "props-text-strokeWidth"}));
     }
-    y += 28.0;
+    y += 48.0;
     // Fill and Stroke, each with an enable checkbox, swatch and label.
     for (i, (key, label, on, c)) in [("fill", "Fill", doc.apply_fill, doc.fill), ("stroke", "Stroke", doc.apply_stroke, doc.stroke)].into_iter().enumerate() {
         let ry = y + i as f32 * 24.0;

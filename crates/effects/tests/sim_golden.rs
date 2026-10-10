@@ -11,8 +11,9 @@
 //! effects, however small, fails the test.
 //!
 //! The hashes are exact `f32` bit patterns, so they depend on the platform's libm (`sin`, `cos`,
-//! `powf`…); they are pinned for aarch64 macOS (where the gates run). Elsewhere the test only
-//! checks that every case renders deterministically. A case whose frame differs between macOS
+//! `powf`…); they are pinned for aarch64 macOS (where the gates run), except the CC Bubbles
+//! fidelity correction refreshed on x86_64 Windows. Windows checks those bubble hashes;
+//! other cases there only check determinism. A case whose frame differs between macOS
 //! releases only through libm also accepts that release's hash ([`LIBM_VARIANTS`]).
 //!
 //! `SIM_GOLDEN_PRINT=1` prints the table (to re-pin after an intended change);
@@ -319,6 +320,13 @@ fn sim_effects_golden_hashes() {
     }
     // Deterministic: a second pass (warm simulation caches) renders the same frames.
     assert_eq!(got, hashes(), "simulation effects render deterministically");
+    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        let bubbles: Vec<_> = got.iter().filter(|(name, _)| name.starts_with("ec.sim.ccbubbles/")).cloned().collect();
+        let pinned: Vec<_> = GOLDEN.iter().filter(|(name, _)| name.starts_with("ec.sim.ccbubbles/")).copied().collect();
+        assert_eq!(bubbles.len(), pinned.len(), "CC Bubbles case count");
+        let bad = mismatches(&bubbles, &pinned, LIBM_VARIANTS);
+        assert!(bad.is_empty(), "CC Bubbles CPU output changed:\n{}", bad.join("\n"));
+    }
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         assert_eq!(got.len(), GOLDEN.len(), "case count");
         let bad = mismatches(&got, GOLDEN, LIBM_VARIANTS);
@@ -433,26 +441,26 @@ const GOLDEN: &[(&str, u64)] = &[
     ("ec.sim.ccstarburst/1/32bpc/t1.5", 0x5c39f8b1bd0e9e43),
     ("ec.sim.ccstarburst/1/32bpc/t0.8", 0xdf20aa9dcf4b3e22),
     ("ec.sim.ccstarburst/1/32bpc/t2.2", 0x4fa441737bfcb64d),
-    ("ec.sim.ccbubbles/0/8bpc/t0.5", 0xdcd187e75eeb2fae),
-    ("ec.sim.ccbubbles/0/8bpc/t1.5", 0x835ca088747736ed),
-    ("ec.sim.ccbubbles/0/8bpc/t0.8", 0x5cbb1a6fbb77b41d),
-    ("ec.sim.ccbubbles/0/8bpc/t2.2", 0x3b168068f5bfa533),
-    ("ec.sim.ccbubbles/0/32bpc/t0.5", 0x524b84d14edd77e2),
-    ("ec.sim.ccbubbles/0/32bpc/t1.5", 0xfd7a17f0d40f2a27),
-    ("ec.sim.ccbubbles/0/32bpc/t0.8", 0x70dd2b2b4ff0f7ce),
-    ("ec.sim.ccbubbles/0/32bpc/t2.2", 0xae21dd5cc2c2c07c),
-    ("ec.sim.ccbubbles/0/8bpc/half/t0.5", 0x931b4ca707604220),
-    ("ec.sim.ccbubbles/0/8bpc/half/t1.5", 0x21c25d4555abebe9),
-    ("ec.sim.ccbubbles/0/8bpc/half/t0.8", 0x7e05972683359632),
-    ("ec.sim.ccbubbles/0/8bpc/half/t2.2", 0xadc4f7219dab4921),
-    ("ec.sim.ccbubbles/1/8bpc/t0.5", 0x89d27a2fe2011067),
-    ("ec.sim.ccbubbles/1/8bpc/t1.5", 0x2bbfee897bf5bf6e),
-    ("ec.sim.ccbubbles/1/8bpc/t0.8", 0x26cc704e7b06fffc),
-    ("ec.sim.ccbubbles/1/8bpc/t2.2", 0x959d331545d96479),
-    ("ec.sim.ccbubbles/1/32bpc/t0.5", 0xaf486cebfcbf4641),
-    ("ec.sim.ccbubbles/1/32bpc/t1.5", 0xe150e9fdb558036f),
-    ("ec.sim.ccbubbles/1/32bpc/t0.8", 0x6395f3967cb24284),
-    ("ec.sim.ccbubbles/1/32bpc/t2.2", 0x68a55894d86ffb9e),
+    ("ec.sim.ccbubbles/0/8bpc/t0.5", 0xd23e1340f37c5519),
+    ("ec.sim.ccbubbles/0/8bpc/t1.5", 0xfd0cc10ba71fc876),
+    ("ec.sim.ccbubbles/0/8bpc/t0.8", 0x040fef0a16c64c33),
+    ("ec.sim.ccbubbles/0/8bpc/t2.2", 0xf5c7d2619151c521),
+    ("ec.sim.ccbubbles/0/32bpc/t0.5", 0x2008949b6b005cd1),
+    ("ec.sim.ccbubbles/0/32bpc/t1.5", 0xe1592250cac85b47),
+    ("ec.sim.ccbubbles/0/32bpc/t0.8", 0x32c13868d0bd53d3),
+    ("ec.sim.ccbubbles/0/32bpc/t2.2", 0x53e97aade91def49),
+    ("ec.sim.ccbubbles/0/8bpc/half/t0.5", 0xc2c22c00b67eae35),
+    ("ec.sim.ccbubbles/0/8bpc/half/t1.5", 0x7c559bf64ce8bd90),
+    ("ec.sim.ccbubbles/0/8bpc/half/t0.8", 0x5c236a730e8502fd),
+    ("ec.sim.ccbubbles/0/8bpc/half/t2.2", 0x480e0bd4089c882d),
+    ("ec.sim.ccbubbles/1/8bpc/t0.5", 0x3d628944a0468e9a),
+    ("ec.sim.ccbubbles/1/8bpc/t1.5", 0xc793458003150a13),
+    ("ec.sim.ccbubbles/1/8bpc/t0.8", 0x470dbcf68d21f629),
+    ("ec.sim.ccbubbles/1/8bpc/t2.2", 0xab67004f0b366876),
+    ("ec.sim.ccbubbles/1/32bpc/t0.5", 0x17351a5df18b9c72),
+    ("ec.sim.ccbubbles/1/32bpc/t1.5", 0xdfbca3118f7b91b7),
+    ("ec.sim.ccbubbles/1/32bpc/t0.8", 0x154049f4e8aeb78f),
+    ("ec.sim.ccbubbles/1/32bpc/t2.2", 0x43ff6ea12e9330eb),
     ("ec.sim.ccdrizzle/0/8bpc/t0.5", 0x2bdfbc17d92b65b5),
     ("ec.sim.ccdrizzle/0/8bpc/t1.5", 0x8c354c46f99e35d3),
     ("ec.sim.ccdrizzle/0/8bpc/t0.8", 0x891f331ba47ee557),

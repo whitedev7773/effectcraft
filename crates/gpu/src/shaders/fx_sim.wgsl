@@ -179,32 +179,25 @@ fn fxm_bubble(at: u32, x: f32, y: f32) -> FxmShade {
         return fxm_none();
     }
     let k = select(-0.7, 1.6, P.u[1].y != 0u);
-    let nz = sqrt(max(1.0 - d2, 0.0));
     let s = fxm_unpremul(sample_bilinear(src, data[at + 4u] + dx * qr * k, data[at + 5u] + dy * qr * k));
     var c = s.xyz;
-    if (s.w <= 0.0) {
-        c = vec3<f32>(0.6, 0.7, 0.8);
-    }
     var a = cov;
+    let radial = min(d2, 1.0);
     switch (P.u[1].z) {
         case 1u: {
-            c = c * 0.7 + 0.3 * (1.0 - nz);
+            c = c + (vec3<f32>(1.0) - c) * radial;
         }
         case 2u: {
-            c = c * (0.5 + 0.5 * nz);
+            c = c * (1.0 - radial);
         }
         case 3u: {
-            a *= powz(nz, 0.5);
+            a *= radial * radial;
         }
         case 4u: {
-            a *= 1.0 - nz * 0.8;
+            a *= 1.0 - radial;
         }
         default: {}
     }
-    let hx = dx + 0.35;
-    let hy = dy + 0.35;
-    let hl = max(1.0 - (hx * hx + hy * hy) / 0.05, 0.0) * 0.8;
-    c = c + hl;
     return FxmShade(true, vec4<f32>(c * a, a));
 }
 

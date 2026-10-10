@@ -83,12 +83,13 @@ fn label(p: &egui::Painter, pos: Pos2, s: &str, t: &Tokens) {
 fn button(app: &mut EffectcraftApp, ui: &mut egui::Ui, r: Rect, text: &str, enabled: bool, id: &str) -> bool {
     let t = app.tokens;
     app.auto.add(id, r, text);
-    if !enabled {
-        ui.painter().rect_filled(r, r.height() / 2.0, Color32::from_rgb(0x2a, 0x2a, 0x2a));
-        ui.painter().text(r.center(), Align2::CENTER_CENTER, text, Tokens::medium(12.0), t.text_faint);
-        return false;
-    }
-    widgets::text_button(ui, r, text, false, &t, egui::Id::new(id)).clicked()
+    ui.scope(|ui| {
+        if !enabled {
+            ui.disable();
+        }
+        widgets::text_button(ui, r, text, false, &t, egui::Id::new(id)).clicked()
+    })
+    .inner
 }
 
 fn run(app: &mut EffectcraftApp, ctx: &egui::Context, cmd: &str, p: serde_json::Value) {
@@ -121,8 +122,8 @@ pub fn show(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
         ctx.request_repaint_after(std::time::Duration::from_millis(50));
     }
     let p = ui.painter().with_clip_rect(rect);
-    let x0 = rect.min.x + 10.0;
-    let w = (rect.width() - 20.0).max(120.0);
+    let x0 = rect.min.x + 12.0;
+    let w = (rect.width() - 24.0).clamp(0.0, 520.0);
     let half = (w - 6.0) / 2.0;
     let mut y = rect.min.y + 10.0;
     let has_comp = app.session.active_comp().is_some();
@@ -350,8 +351,8 @@ pub fn show(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
 fn mask_mode(app: &mut EffectcraftApp, ui: &mut egui::Ui, ctx: &egui::Context, p: &egui::Painter, rect: Rect, mut y: f32, layer: LayerId, mask: Uid) {
     use effectcraft_engine::mask_track::MaskMethod;
     let t = app.tokens;
-    let x0 = rect.min.x + 10.0;
-    let w = (rect.width() - 20.0).max(120.0);
+    let x0 = rect.min.x + 12.0;
+    let w = (rect.width() - 24.0).clamp(0.0, 520.0);
     let field_x = x0 + 100.0;
     let field_w = (w - 100.0).max(80.0);
     let name = app

@@ -1,15 +1,6 @@
-//! Render Queue panel, laid out like After Effects': a Current Render strip (progress bar,
-//! elapsed / estimated remaining, Stop and Render buttons), the queue list (twirl, Render
-//! checkbox, label, #, Comp Name, Status, Started, Render Time) with expandable Render Settings,
-//! Output Module and Output To rows, and a status footer.
-//!
-//! Every control dispatches an engine `renderQueue.*` command (so agents can do the same) and
-//! registers an automation id: `renderQueue.render`, `renderQueue.stop`, `renderQueue.notify`,
-//! `renderQueue.item.<n>.{row,twirl,render,renderSettings,outputModule,outputTo,outputPath,log}`.
-//!
-//! The Render Settings and Output Module menus list the templates first (Edit ▸ Templates), then
-//! every setting; entries needing numbers (custom time span and frame rate, crop, resize, bitrate,
-//! key frame interval, Make Template) open a form that runs the same command.
+//! Render queue cards expose the output file, format, range, quality and resolution directly.
+//! Detailed render / encoding settings and templates remain available in labelled menus.
+//! All edits dispatch engine commands and register stable automation ids by queue item id.
 
 use effectcraft_engine::project::render_queue::{
     AlphaMode, AudioFormat, AudioOutput, Channels, ColorDepth, CurrentOrOff, EffectsMode, FieldRender, OpusApplication, OutputFormat, PostRenderAction,
@@ -22,11 +13,6 @@ use serde_json::{Value, json};
 use crate::theme::Tokens;
 use crate::widgets::check_label as mark;
 use crate::{EffectcraftApp, widgets};
-
-const TOP_H: f32 = 74.0;
-const HEAD_H: f32 = 22.0;
-const ROW_H: f32 = 24.0;
-const FOOT_H: f32 = 24.0;
 
 /// `h:mm:ss` for a duration in seconds.
 pub fn hms(secs: f64) -> String {
@@ -404,14 +390,80 @@ fn pick_output(app: &EffectcraftApp, it: &RenderQueueItem) -> Option<Option<Stri
     Some(pick(&default, it.output.format.extension()))
 }
 
+// A labelled control shares the same 26-point height and 8-point text inset as editor fields.
+#[allow(clippy::too_many_arguments)]
+fn choice(
+    app: &mut EffectcraftApp,
+    ui: &mut egui::Ui,
+    rect: Rect,
+    it: &RenderQueueItem,
+    key: &str,
+    label: &str,
+    shown: &str,
+    options: &[(String, Value)],
+    enabled: bool,
+) -> Option<Value> {
+    let t = app.tokens;
+    widgets::text_fit(ui.painter(), rect.min, Align2::LEFT_TOP, label, Tokens::ui(11.0), rect.width(), t.text_dim);
+    let control = Rect::from_min_max(rect.min + vec2(0.0, 17.0), rect.max);
+    let id = egui::Id::new(("rq-choice", it.id, key));
+    ui.scope(|ui| {
+        if !enabled {
+            ui.disable();
+        }
+        if widgets::dropdown(ui, control, shown, &t, id).clicked() {
+            widgets::open_popup(ui, id);
+        }
+    });
+    app.auto.add(&format!("renderQueue.item.{}.{}", it.id, key), control, shown);
+    let labels: Vec<String> = options.iter().map(|(label, _)| label.clone()).collect();
+    widgets::popup_menu(ui, id, control.left_bottom(), &labels, None).and_then(|i| options.get(i).map(|(_, v)| v.clone())).filter(|_| enabled)
+}
+#[allow(clippy::too_many_arguments)]
+fn button(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect, id: &str, text: &str, primary: bool, enabled: bool) -> bool {
+    let t = app.tokens;
+    app.auto.add(id, rect, text);
+    ui.scope(|ui| {
+        if !enabled {
+            ui.disable();
+        }
+        widgets::text_button(ui, rect, text, primary, &t, egui::Id::new(id)).clicked()
+    })
+    .inner
+}
+fn blocked_reason(app: &EffectcraftApp, it: &RenderQueueItem, available: &[OutputFormat]) -> Option<String> {
+    if app.session.project.comp(it.comp).is_none() {
+        return Some("Composition is missing. Remove this item or add another composition.".into());
+    }
+    if !available.contains(&it.output.format) {
+        return Some(format!("{} export is unavailable in this build. Choose an available format.", it.output.format.label()));
+    }
+    match app.session.resolve_output(it) {
+        Some(path) if !path.trim().is_empty() => None,
+        _ => Some("Choose an output file before rendering.".into()),
+    }
+}
 pub fn show(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let t = app.tokens;
     let p = ui.painter().with_clip_rect(rect);
-    let queue: Vec<RenderQueueItem> = app.session.project.render_queue.clone();
+    let queue = app.session.project.render_queue.clone();
     let progress = app.session.render_progress();
     let rendering = app.session.is_rendering();
     let available = app.session.exporter.as_ref().map(|e| e.formats()).unwrap_or_default();
     let mut actions: Vec<(&'static str, Value)> = Vec::new();
+    let mut forms: Vec<(RenderQueueItem, String)> = Vec::new();
+    let state_id = egui::Id::new("rq-ui");
+    let (mut open, mut selected): (Vec<u64>, Option<u64>) = ui.data(|d| d.get_temp(state_id)).unwrap_or_else(|| {
+        let first = queue.first().map(|it| it.id);
+        (first.into_iter().collect(), first)
+    });
+    if selected.is_none()
+        && open.is_empty()
+        && let Some(first) = queue.first()
+    {
+        open.push(first.id);
+        selected = Some(first.id);
+    }
     app.auto.add("renderQueue.drop", rect, "Drop compositions to queue");
     if !rendering
         && let Some(crate::panels::DragPayload::Item(id)) = egui::DragAndDrop::payload::<crate::panels::DragPayload>(ui.ctx()).as_deref()
@@ -425,385 +477,472 @@ pub fn show(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
         };
         if ui.input(|i| i.pointer.any_released()) {
             for comp in ids {
-                actions.push(("renderQueue.add", json!({"comp": comp})));
+                actions.push(("renderQueue.add", json!({"comp":comp})));
             }
             egui::DragAndDrop::clear_payload(ui.ctx());
         } else {
-            p.rect_stroke(rect.shrink(2.0), 0.0, Stroke::new(2.0, t.accent), StrokeKind::Inside);
+            p.rect_stroke(rect.shrink(2.0), 3.0, Stroke::new(2.0, t.accent), StrokeKind::Inside);
         }
     }
-    let mut forms: Vec<(RenderQueueItem, String)> = Vec::new();
-    let state_id = egui::Id::new("rq-ui");
-    let (mut open, mut selected): (Vec<u64>, Option<u64>) = ui.data(|d| d.get_temp(state_id).unwrap_or_default());
-
-    // ---------------------------------------------------------- Current Render strip
-    let top = Rect::from_min_size(rect.min, vec2(rect.width(), TOP_H));
-    p.rect_filled(top, 0.0, t.tl_ruler_bg);
-    let x0 = rect.min.x + 12.0;
-    p.text(pos2(x0, top.min.y + 16.0), Align2::LEFT_CENTER, "Current Render", Tokens::semibold(12.5), t.text);
-    let cur_item = progress.as_ref().and_then(|p| p.current).and_then(|id| queue.iter().find(|i| i.id == id));
-    let cur_name = cur_item.and_then(|i| app.session.project.item(i.comp)).map(|i| i.name.clone());
-    if let Some(pr) = &progress {
-        let rem = pr.remaining.map(hms).unwrap_or_else(|| "–".into());
-        p.text(
-            pos2(top.max.x - 12.0, top.min.y + 16.0),
-            Align2::RIGHT_CENTER,
-            format!("Elapsed: {}     Est. Remain: {rem}", hms(pr.item_elapsed)),
-            Tokens::ui(11.5),
-            t.text_dim,
-        );
+    let pending = |it: &&RenderQueueItem| it.is_queued() || (it.render && it.status == RenderStatus::NeedsOutput);
+    let queued = queue.iter().filter(pending).count();
+    let block = queue.iter().filter(pending).find_map(|it| blocked_reason(app, it, &available));
+    let can_render = !rendering && queued > 0 && block.is_none();
+    let toolbar = Rect::from_min_size(rect.min + vec2(12.0, 10.0), vec2((rect.width() - 24.0).max(0.0), 28.0));
+    let action_width = 112.0_f32.min(toolbar.width() * 0.45);
+    let render_button = Rect::from_min_max(pos2(toolbar.max.x - action_width, toolbar.min.y), toolbar.max);
+    let add_button = Rect::from_min_size(toolbar.min, vec2((toolbar.width() - action_width - 8.0).clamp(0.0, 164.0), 28.0));
+    if button(app, ui, add_button, "renderQueue.add", "Add composition", false, !rendering && app.session.active_comp().is_some()) {
+        actions.push(("renderQueue.add", json!({})));
     }
-    let bw = 76.0;
-    let render_b = Rect::from_min_size(pos2(top.max.x - 12.0 - bw, top.min.y + 34.0), vec2(bw, 26.0));
-    let stop_b = Rect::from_min_size(pos2(render_b.min.x - 8.0 - bw, render_b.min.y), vec2(bw, 26.0));
-    let can_render = !rendering && queue.iter().any(RenderQueueItem::is_queued) && !available.is_empty();
-    if widgets::text_button(ui, render_b, "Render", can_render, &t, egui::Id::new("rq-render")).clicked() && can_render {
-        actions.push(("renderQueue.render", json!({"wait": false})));
-    }
-    app.auto.add("renderQueue.render", render_b, "Render");
-    // Notify (sound + notification when the queue finishes).
-    let notify = app.session.project.render_prefs.notify;
-    let nb = Rect::from_min_size(pos2(render_b.min.x - 8.0 - 2.0 * bw - 8.0, render_b.min.y + 4.0), vec2(18.0, 18.0));
-    if widgets::checkbox(ui, nb, notify, &t, egui::Id::new("rq-notify")).clicked() {
-        actions.push(("renderQueue.setNotify", json!({"notify": !notify})));
-    }
-    p.text(pos2(nb.max.x + 5.0, nb.center().y), Align2::LEFT_CENTER, "Notify", Tokens::ui(11.5), t.text_dim);
-    app.auto.add("renderQueue.notify", nb, if notify { "Notify: on" } else { "Notify: off" });
     if rendering {
-        if widgets::text_button(ui, stop_b, "Stop", false, &t, egui::Id::new("rq-stop")).clicked() {
+        if button(app, ui, render_button, "renderQueue.stop", "Stop render", false, true) {
             actions.push(("renderQueue.stop", json!({})));
         }
-        app.auto.add("renderQueue.stop", stop_b, "Stop");
+    } else if button(app, ui, render_button, "renderQueue.render", &format!("Render ({queued})"), true, can_render) {
+        actions.push(("renderQueue.render", json!({"wait":false})));
     }
-    // Progress bar.
-    let bar = Rect::from_min_max(pos2(x0, render_b.min.y + 4.0), pos2(nb.min.x - 16.0, render_b.max.y - 4.0));
-    p.rect_filled(bar, 3.0, t.field_bg);
-    p.rect_stroke(bar, 3.0, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
-    let frac = progress.as_ref().filter(|p| p.total > 0).map(|p| (p.done as f32 / p.total as f32).clamp(0.0, 1.0)).unwrap_or(0.0);
-    if frac > 0.0 {
-        let fill = Rect::from_min_size(bar.min, vec2(bar.width() * frac, bar.height()));
-        p.rect_filled(fill, 3.0, t.accent);
-    }
-    let bar_text = match (&progress, &cur_name) {
-        (Some(pr), Some(n)) if rendering => format!("Rendering “{n}”   {} / {} frames", pr.done, pr.total),
-        _ => {
-            let n = queue.iter().filter(|i| i.is_queued()).count();
-            if available.is_empty() {
-                "Export is not available in this build".to_string()
-            } else if n == 0 {
-                "Composition ▸ Add to Render Queue (Ctrl/⌘ M) to queue a render".to_string()
-            } else {
-                format!("{n} item(s) queued")
-            }
-        }
+    let message = if let Some(pr) = progress.as_ref().filter(|_| rendering) {
+        let name = pr
+            .current
+            .and_then(|id| queue.iter().find(|it| it.id == id))
+            .and_then(|it| app.session.project.item(it.comp))
+            .map(|it| it.name.as_str())
+            .unwrap_or("Composition");
+        format!(
+            "{name} · {} / {} frames · elapsed {} · remaining {}",
+            pr.done,
+            pr.total,
+            hms(pr.elapsed),
+            pr.remaining.map(hms).unwrap_or_else(|| "Calculating…".into())
+        )
+    } else if available.is_empty() {
+        "Export is unavailable in this build".into()
+    } else if let Some(reason) = block {
+        reason
+    } else if queued == 0 {
+        "Add a composition or drag one here to start.".into()
+    } else {
+        format!("{queued} ready to render · choose the format and output file below")
     };
-    p.text(pos2(bar.min.x + 8.0, bar.center().y), Align2::LEFT_CENTER, bar_text, Tokens::ui(11.5), t.text);
-    app.auto.add("renderQueue.progress", bar, &format!("{:.0}%", frac * 100.0));
-
-    // ---------------------------------------------------------- column header
-    let head = Rect::from_min_size(pos2(rect.min.x, top.max.y), vec2(rect.width(), HEAD_H));
-    p.rect_filled(head, 0.0, t.panel_bg);
-    p.line_segment([head.left_bottom(), head.right_bottom()], Stroke::new(1.0, t.separator));
-    // Columns: twirl | Render | label | # | Comp Name | Status | Started | Render Time
-    let cx_twirl = rect.min.x + 4.0;
-    let cx_render = cx_twirl + 20.0;
-    let cx_label = cx_render + 48.0;
-    let cx_num = cx_label + 20.0;
-    let cx_name = cx_num + 28.0;
-    let w_time = 92.0;
-    let w_started = 156.0;
-    let w_status = 112.0;
-    let cx_time = (rect.max.x - w_time).max(cx_name + 120.0);
-    let cx_started = cx_time - w_started;
-    let cx_status = cx_started - w_status;
-    let hy = head.center().y;
-    for (x, l) in [(cx_render, "Render"), (cx_num, "#"), (cx_name, "Comp Name"), (cx_status, "Status"), (cx_started, "Started"), (cx_time, "Render Time")] {
-        p.text(pos2(x + 2.0, hy), Align2::LEFT_CENTER, l, Tokens::ui(11.0), t.text_dim);
+    let info_y = toolbar.max.y + 14.0;
+    widgets::text_fit(
+        &p,
+        pos2(toolbar.min.x, info_y),
+        Align2::LEFT_CENTER,
+        &message,
+        Tokens::ui(11.5),
+        toolbar.width(),
+        if !rendering && !can_render && queued > 0 { t.warning } else { t.text_dim },
+    );
+    let bar = Rect::from_min_size(pos2(toolbar.min.x, info_y + 12.0), vec2(toolbar.width(), 4.0));
+    p.rect_filled(bar, 2.0, t.field_bg);
+    let fraction =
+        progress.as_ref().filter(|_| rendering).filter(|pr| pr.total > 0).map(|pr| (pr.done as f32 / pr.total as f32).clamp(0.0, 1.0)).unwrap_or(0.0);
+    if fraction > 0.0 {
+        p.rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * fraction, 4.0)), 2.0, t.accent);
     }
-    for x in [cx_render, cx_label, cx_num, cx_name, cx_status, cx_started, cx_time] {
-        p.line_segment([pos2(x - 3.0, head.min.y + 4.0), pos2(x - 3.0, head.max.y - 4.0)], Stroke::new(1.0, t.separator));
-    }
-
-    // ---------------------------------------------------------- items
-    let list = Rect::from_min_max(pos2(rect.min.x, head.max.y), pos2(rect.max.x, rect.max.y - FOOT_H));
-    let lp = p.with_clip_rect(list);
-    let scroll = widgets::PanelScroll::begin(ui, egui::Id::new("rq-scroll"), list);
-    // Items scroll under the header and footer: clip their widgets (and hit tests) to the list.
+    app.auto.add("renderQueue.progress", bar, &message);
+    let foot = Rect::from_min_max(pos2(rect.min.x, (rect.max.y - 28.0).max(bar.max.y + 8.0)), rect.max);
+    let list = Rect::from_min_max(pos2(rect.min.x, bar.max.y + 10.0), pos2(rect.max.x, foot.min.y.max(bar.max.y + 10.0)));
     let panel_clip = ui.clip_rect();
     ui.set_clip_rect(list.intersect(panel_clip));
+    let lp = p.with_clip_rect(list.intersect(panel_clip));
+    let scroll = widgets::PanelScroll::begin(ui, egui::Id::new("rq-scroll"), list);
     let mut y = list.min.y - scroll.offset;
-    if queue.is_empty() {
-        lp.text(pos2(list.center().x, list.min.y + 30.0), Align2::CENTER_CENTER, "The render queue is empty.", Tokens::ui(12.0), t.text_faint);
-    }
     let editing_id = egui::Id::new("rq-edit-output");
     let mut editing: Option<(u64, String)> = ui.data(|d| d.get_temp(editing_id));
-    for (k, it) in queue.iter().enumerate() {
-        let n = k + 1;
-        let aid = |s: &str| format!("renderQueue.item.{n}.{s}");
-        let row = Rect::from_min_size(pos2(list.min.x, y), vec2(list.width(), ROW_H));
-        y += ROW_H;
-        let is_sel = selected == Some(it.id);
-        lp.rect_filled(
-            row,
-            0.0,
-            if is_sel {
-                t.row_selected
-            } else if k % 2 == 0 {
-                t.row
-            } else {
-                t.row_alt
-            },
-        );
-        let row_resp = ui.interact(row, egui::Id::new(("rq-row", it.id)), Sense::click());
-        if row_resp.clicked() {
+    for (index, it) in queue.iter().enumerate() {
+        let aid = |key: &str| format!("renderQueue.item.{}.{}", it.id, key);
+        let is_open = open.contains(&it.id);
+        let width = (list.width() - 44.0).max(0.0);
+        let columns = if width >= 560.0 { 2 } else { 1 };
+        let settings_height = 48.0 * (4 / columns) as f32;
+        let advanced_height = 48.0 * 3_usize.div_ceil(columns) as f32;
+        let reason = if it.render { blocked_reason(app, it, &available) } else { None };
+        let error = match &it.status {
+            RenderStatus::Failed(e) => Some(e.clone()),
+            _ => reason,
+        };
+        let status_height = if width < 420.0 { 24.0 } else { 0.0 };
+        let extra = if error.is_some() { 28.0 } else { 0.0 };
+        let height = if is_open { 40.0 + status_height + 56.0 + settings_height + advanced_height + 30.0 + extra + 12.0 } else { 68.0 };
+        let card = Rect::from_min_size(pos2(list.min.x + 8.0, y), vec2((list.width() - 20.0).max(0.0), height));
+        y += height + 8.0;
+        lp.rect_filled(card, 4.0, t.row);
+        lp.rect_stroke(card, 4.0, Stroke::new(1.0, if selected == Some(it.id) { t.field_border } else { t.separator }), StrokeKind::Inside);
+        let header = Rect::from_min_size(card.min, vec2(card.width(), 36.0));
+        let response = ui.interact(header, egui::Id::new(("rq-row", it.id)), Sense::click());
+        if response.clicked() {
             selected = Some(it.id);
             app.ui.focused = crate::dock::PanelKind::RenderQueue;
         }
-        let item_id = it.id;
-        row_resp.context_menu(|ui| {
-            if ui.button("Duplicate").clicked() {
-                actions.push(("renderQueue.duplicate", json!({"item": item_id})));
-                ui.close();
-            }
-            if ui.button("Remove").clicked() {
-                actions.push(("renderQueue.remove", json!({"item": item_id})));
-                ui.close();
-            }
-            if k > 0 && ui.button("Move Up").clicked() {
-                actions.push(("renderQueue.move", json!({"item": item_id, "to": n - 1})));
-                ui.close();
-            }
-            if n < queue.len() && ui.button("Move Down").clicked() {
-                actions.push(("renderQueue.move", json!({"item": item_id, "to": n + 1})));
-                ui.close();
-            }
+        response.context_menu(|ui| {
+            ui.add_enabled_ui(!rendering, |ui| {
+                for (label, command, params) in [
+                    ("Duplicate", "renderQueue.duplicate", json!({"item":it.id})),
+                    ("Remove", "renderQueue.remove", json!({"item":it.id})),
+                    ("Move Up", "renderQueue.move", json!({"item":it.id,"to":index})),
+                    ("Move Down", "renderQueue.move", json!({"item":it.id,"to":index + 2})),
+                ] {
+                    if ((label != "Move Up" || index > 0) && (label != "Move Down" || index + 1 < queue.len())) && ui.button(label).clicked() {
+                        actions.push((command, params));
+                        ui.close();
+                    }
+                }
+            });
         });
-        app.auto.add(&aid("row"), row, &format!("#{n}"));
-        let is_open = open.contains(&it.id);
-        let tw = Rect::from_center_size(pos2(cx_twirl + 8.0, row.center().y), vec2(14.0, 14.0));
-        if widgets::twirl(ui, tw, is_open, egui::Id::new(("rq-twirl", it.id)), &t).clicked() {
+        app.auto.add(&aid("row"), header, &format!("Item {}", index + 1));
+        let twirl = Rect::from_min_size(header.min + vec2(8.0, 6.0), vec2(24.0, 24.0));
+        if widgets::twirl(ui, twirl, is_open, egui::Id::new(("rq-twirl", it.id)), &t).clicked() {
+            selected = Some(it.id);
             if is_open {
-                open.retain(|i| *i != it.id);
+                open.retain(|id| *id != it.id);
             } else {
                 open.push(it.id);
             }
         }
-        app.auto.add(&aid("twirl"), tw, "Twirl");
-        let cb = Rect::from_center_size(pos2(cx_render + 20.0, row.center().y), vec2(18.0, 18.0));
-        if widgets::checkbox(ui, cb, it.render, &t, egui::Id::new(("rq-cb", it.id))).clicked() && !rendering {
-            actions.push(("renderQueue.setRender", json!({"item": it.id, "render": !it.render})));
-        }
-        app.auto.add(&aid("render"), cb, if it.render { "Render: on" } else { "Render: off" });
-        let comp_item = app.session.project.item(it.comp);
-        let label_col = comp_item.map(|i| t.label(i.label)).unwrap_or(t.text_faint);
-        lp.rect_filled(Rect::from_center_size(pos2(cx_label + 6.0, row.center().y), vec2(10.0, 10.0)), 2.0, label_col);
-        lp.text(pos2(cx_num + 2.0, row.center().y), Align2::LEFT_CENTER, n.to_string(), Tokens::ui(12.0), t.text_dim);
-        let name = comp_item.map(|i| i.name.clone()).unwrap_or_else(|| "(missing composition)".into());
-        lp.text(pos2(cx_name + 2.0, row.center().y), Align2::LEFT_CENTER, &name, Tokens::ui(12.0), t.text);
-        let status = if rendering && let Some(pr) = progress.as_ref().filter(|p| p.current == Some(it.id)) {
-            format!("Rendering {:.0}%", if pr.total > 0 { pr.done as f64 * 100.0 / pr.total as f64 } else { 0.0 })
+        app.auto.add(&aid("twirl"), twirl, if is_open { "Collapse settings" } else { "Expand settings" });
+        let checkbox = Rect::from_min_size(pos2(twirl.max.x + 4.0, twirl.min.y), vec2(24.0, 24.0));
+        ui.scope(|ui| {
+            if rendering {
+                ui.disable();
+            }
+            if widgets::checkbox(ui, checkbox, it.render, &t, egui::Id::new(("rq-check", it.id))).clicked() {
+                actions.push(("renderQueue.setRender", json!({"item":it.id,"render":!it.render})));
+            }
+        });
+        app.auto.add(&aid("render"), checkbox, if it.render { "Include in render" } else { "Skip render" });
+        let remove = Rect::from_min_size(pos2(header.max.x - 32.0, twirl.min.y), vec2(24.0, 24.0));
+        ui.scope(|ui| {
+            if rendering {
+                ui.disable();
+            }
+            if widgets::icon_button(ui, remove, crate::icons::Icon::Trash, false, &t, egui::Id::new(("rq-remove", it.id)))
+                .on_hover_text("Remove from queue")
+                .clicked()
+            {
+                actions.push(("renderQueue.remove", json!({"item":it.id})));
+            }
+        });
+        app.auto.add(&aid("remove"), remove, "Remove from queue");
+        let status_rect = if width >= 420.0 {
+            Rect::from_min_max(pos2((remove.min.x - 112.0).max(checkbox.max.x + 8.0), header.min.y + 5.0), pos2(remove.min.x - 8.0, header.max.y - 5.0))
         } else {
-            it.status.label().to_string()
+            Rect::from_min_size(pos2(card.min.x + 12.0, header.max.y), vec2((card.width() - 24.0).max(0.0), 24.0))
         };
-        let st_rect = Rect::from_min_size(pos2(cx_status, row.min.y), vec2(w_status, ROW_H));
-        lp.text(pos2(cx_status + 2.0, row.center().y), Align2::LEFT_CENTER, &status, Tokens::ui(12.0), status_color(&t, &it.status));
-        if let RenderStatus::Failed(e) = &it.status {
-            ui.interact(st_rect, egui::Id::new(("rq-st", it.id)), Sense::hover()).on_hover_text(e);
-        }
-        app.auto.add(&aid("status"), st_rect, &status);
-        if let Some(s) = it.started {
-            lp.text(pos2(cx_started + 2.0, row.center().y), Align2::LEFT_CENTER, utc_stamp(s), Tokens::ui(11.5), t.text_dim);
+        let status = if rendering && progress.as_ref().is_some_and(|pr| pr.current == Some(it.id)) {
+            format!("Rendering {:.0}%", fraction * 100.0)
         } else {
-            lp.text(pos2(cx_started + 2.0, row.center().y), Align2::LEFT_CENTER, "-", Tokens::ui(11.5), t.text_faint);
-        }
-        let rt = if progress.as_ref().and_then(|p| p.current) == Some(it.id) && rendering {
-            progress.as_ref().map(|p| hms(p.item_elapsed)).unwrap_or_default()
-        } else {
-            it.render_time.map(|s| if s < 60.0 { format!("{s:.1} s") } else { hms(s) }).unwrap_or_else(|| "-".into())
+            it.status.label().to_owned()
         };
-        lp.text(pos2(cx_time + 2.0, row.center().y), Align2::LEFT_CENTER, rt, Tokens::ui(11.5), t.text_dim);
-
+        let name_end = if width >= 420.0 { status_rect.min.x - 8.0 } else { remove.min.x - 8.0 };
+        let name = app.session.project.item(it.comp).map(|it| it.name.as_str()).unwrap_or("Missing composition");
+        widgets::text_fit(
+            &lp,
+            pos2(checkbox.max.x + 8.0, header.center().y),
+            Align2::LEFT_CENTER,
+            name,
+            Tokens::semibold(12.5),
+            (name_end - checkbox.max.x - 8.0).max(0.0),
+            t.text,
+        );
+        if width >= 420.0 || is_open {
+            let retry = matches!(it.status, RenderStatus::Done | RenderStatus::Failed(_) | RenderStatus::UserStopped);
+            if retry && !rendering {
+                let label = if it.status == RenderStatus::Done { "Render again" } else { "Retry render" };
+                if button(app, ui, status_rect, &aid("requeue"), label, false, true) {
+                    actions.push(("renderQueue.setRender", json!({"item":it.id,"render":true})));
+                }
+            } else {
+                widgets::text_fit(
+                    &lp,
+                    status_rect.right_center(),
+                    Align2::RIGHT_CENTER,
+                    &status,
+                    Tokens::ui(11.5),
+                    status_rect.width(),
+                    status_color(&t, &it.status),
+                );
+            }
+        }
+        app.auto.add(&aid("status"), status_rect, &status);
+        let content_x = card.min.x + 12.0;
+        let content_right = card.max.x - 12.0;
+        let content_width = (content_right - content_x).max(0.0);
         if !is_open {
+            let summary =
+                format!("{} · {} · {}", status, it.output.format.label(), app.session.resolve_output(it).unwrap_or_else(|| "Choose output file".into()));
+            widgets::text_fit(&lp, pos2(content_x, header.max.y + 13.0), Align2::LEFT_CENTER, &summary, Tokens::ui(11.5), content_width, t.text_dim);
             continue;
         }
-        // Expanded: Render Settings / Output Module + Output To.
-        let ix = cx_name;
-        for sub in 0..2 {
-            let r = Rect::from_min_size(pos2(list.min.x, y), vec2(list.width(), ROW_H));
-            y += ROW_H;
-            lp.rect_filled(r, 0.0, t.panel_bg);
-            let templates = &app.session.project.render_templates;
-            let (label, summary, key, menu): (&str, String, &str, Vec<(String, Value)>) = if sub == 0 {
-                ("Render Settings:", it.settings.summary(), "renderSettings", settings_menu(it, templates))
+        let output_y = header.max.y + status_height + 4.0;
+        widgets::text_fit(&lp, pos2(content_x, output_y), Align2::LEFT_TOP, "Output file", Tokens::ui(11.0), content_width, t.text_dim);
+        let browse = Rect::from_min_size(pos2((content_right - 84.0).max(content_x), output_y + 17.0), vec2(84.0_f32.min(content_width), 26.0));
+        let template = Rect::from_min_size(pos2((browse.min.x - 32.0).max(content_x), browse.min.y), vec2(24.0, 26.0));
+        let path_rect = Rect::from_min_max(pos2(content_x, browse.min.y), pos2((template.min.x - 8.0).max(content_x), browse.max.y));
+        let mut choose_file = button(app, ui, browse, &aid("browse"), "Browse…", false, !rendering);
+        let oid = egui::Id::new(("rq-out", it.id));
+        if widgets::dropdown(ui, template, "", &t, oid).clicked() && !rendering {
+            widgets::open_popup(ui, oid);
+        }
+        app.auto.add(&aid("outputTo"), template, "Filename templates and edit path");
+        let mut menu = output_to_menu(it);
+        menu.push(("Edit path / template…".into(), json!({"edit":true})));
+        let labels: Vec<String> = menu.iter().map(|(l, _)| l.clone()).collect();
+        if !rendering
+            && let Some(i) = widgets::popup_menu(ui, oid, template.left_bottom(), &labels, None)
+            && let Some((_, params)) = menu.get(i)
+        {
+            if params.get("choose").is_some() {
+                choose_file = true;
+            } else if params.get("edit").is_some() {
+                editing = Some((it.id, it.output.output.clone()));
             } else {
-                ("Output Module:", it.output.summary(), "outputModule", output_menu(it, &available, templates))
-            };
-            lp.text(pos2(cx_num - 6.0, r.center().y), Align2::LEFT_CENTER, label, Tokens::ui(11.5), t.text_dim);
-            let dd = Rect::from_min_size(pos2(ix + 70.0, r.min.y + 3.0), vec2(220.0, ROW_H - 6.0));
-            let did = egui::Id::new(("rq-dd", it.id, sub));
-            let shown: String = if summary.chars().count() > 31 { summary.chars().take(30).chain(std::iter::once('…')).collect() } else { summary.clone() };
-            if widgets::dropdown(ui, dd, &shown, &t, did).clicked() && !rendering {
-                widgets::open_popup(ui, did);
-            }
-            let labels: Vec<String> = menu.iter().map(|(l, _)| l.clone()).collect();
-            if let Some(i) = widgets::popup_menu(ui, did, dd.left_bottom(), &labels, None) {
-                let mut params = menu[i].1.clone();
-                if let Some(f) = params.get("form").and_then(Value::as_str) {
-                    forms.push((it.clone(), f.to_string()));
-                } else {
-                    params["item"] = json!(it.id);
-                    actions.push((if sub == 0 { "renderQueue.setRenderSettings" } else { "renderQueue.setOutputModule" }, params));
-                }
-            }
-            app.auto.add(&aid(key), dd, &summary);
-            if sub == 0 {
-                let comp = app.session.project.comp(it.comp);
-                if let Some(c) = comp {
-                    let (w, h) = it.settings.output_size(c);
-                    let (a, b) = it.settings.span(c);
-                    let info = format!(
-                        "{w}×{h} · {:.3} fps · {:.2}s – {:.2}s · {} frames",
-                        it.settings.rate(c).as_f64(),
-                        a.seconds(),
-                        b.seconds(),
-                        it.settings.frame_count(c)
-                    );
-                    lp.text(pos2(dd.max.x + 14.0, r.center().y), Align2::LEFT_CENTER, info, Tokens::ui(11.0), t.text_faint);
-                }
-                // Log: Errors Only / Plus Settings / Plus Per Frame Info.
-                let ld = Rect::from_min_size(pos2(r.max.x - 190.0, r.min.y + 3.0), vec2(150.0, ROW_H - 6.0));
-                lp.text(pos2(ld.min.x - 6.0, r.center().y), Align2::RIGHT_CENTER, "Log:", Tokens::ui(11.5), t.text_dim);
-                let lid = egui::Id::new(("rq-log", it.id));
-                if widgets::dropdown(ui, ld, it.log.label(), &t, lid).clicked() && !rendering {
-                    widgets::open_popup(ui, lid);
-                }
-                let llabels: Vec<String> = RenderLog::ALL.iter().map(|l| mark(it.log == *l, l.label())).collect();
-                if let Some(i) = widgets::popup_menu(ui, lid, ld.left_bottom(), &llabels, None) {
-                    actions.push(("renderQueue.setLog", json!({"item": it.id, "log": RenderLog::ALL[i].label()})));
-                }
-                app.auto.add(&aid("log"), ld, it.log.label());
-                continue;
-            }
-            // Output To.
-            let ox = dd.max.x + 14.0;
-            lp.text(pos2(ox, r.center().y), Align2::LEFT_CENTER, "Output To:", Tokens::ui(11.5), t.text_dim);
-            let odd = Rect::from_min_size(pos2(ox + 62.0, r.min.y + 3.0), vec2(22.0, ROW_H - 6.0));
-            let oid = egui::Id::new(("rq-out", it.id));
-            if widgets::dropdown(ui, odd, "", &t, oid).clicked() && !rendering {
-                widgets::open_popup(ui, oid);
-            }
-            app.auto.add(&aid("outputTo"), odd, "Output To");
-            let omenu = output_to_menu(it);
-            let olabels: Vec<String> = omenu.iter().map(|(l, _)| l.clone()).collect();
-            if let Some(i) = widgets::popup_menu(ui, oid, odd.left_bottom(), &olabels, None) {
-                if omenu[i].1.get("choose").is_some() {
-                    // The web has no folders to choose from: its save "dialog" only names the file.
-                    let picked = pick_output(app, it).or_else(|| {
-                        let default = app.session.resolve_output(it).unwrap_or_default();
-                        let name = std::path::Path::new(&default).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                        app.hooks.pick_save.as_ref().map(|f| f(&name))
-                    });
-                    match picked {
-                        Some(Some(path)) => actions.push(("renderQueue.setOutput", json!({"item": it.id, "path": path}))),
-                        Some(None) => {}
-                        None => editing = Some((it.id, it.output.output.clone())),
-                    }
-                } else {
-                    let mut params = omenu[i].1.clone();
-                    params["item"] = json!(it.id);
-                    actions.push(("renderQueue.setOutput", params));
-                }
-            }
-            let path_rect = Rect::from_min_max(pos2(odd.max.x + 6.0, r.min.y + 2.0), pos2(r.max.x - 8.0, r.max.y - 2.0));
-            if editing.as_ref().is_some_and(|(id, _)| *id == it.id) {
-                let mut buf = editing.as_ref().map(|(_, b)| b.clone()).unwrap_or_default();
-                let mut child = ui.new_child(egui::UiBuilder::new().max_rect(path_rect));
-                let resp = child.add(egui::TextEdit::singleline(&mut buf).desired_width(path_rect.width()).font(Tokens::ui(11.5)));
-                if resp.lost_focus() {
-                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) && !buf.trim().is_empty() {
-                        actions.push(("renderQueue.setOutput", json!({"item": it.id, "path": buf.trim()})));
-                    }
-                    editing = None;
-                } else {
-                    widgets::keep_focus(ui.ctx(), &resp, &buf);
-                    editing = Some((it.id, buf));
-                }
-            } else {
-                let shown = app.session.resolve_output(it).unwrap_or_else(|| "Not yet specified".into());
-                let resp = ui.interact(path_rect, egui::Id::new(("rq-path", it.id)), Sense::click());
-                let col = if resp.hovered() { t.accent_hover } else { t.hot_text };
-                lp.with_clip_rect(path_rect.intersect(list)).text(pos2(path_rect.min.x, r.center().y), Align2::LEFT_CENTER, &shown, Tokens::ui(11.5), col);
-                // Clicking the file name opens the save dialog (Output Movie To); Alt-click, or a
-                // host without one, edits the name template in place.
-                let dialog = app.hooks.pick_save_file.is_some();
-                if resp.clicked() && !rendering {
-                    let picked = if ui.input(|i| i.modifiers.alt) { None } else { pick_output(app, it) };
-                    match picked {
-                        Some(Some(path)) => actions.push(("renderQueue.setOutput", json!({"item": it.id, "path": path}))),
-                        Some(None) => {}
-                        None => editing = Some((it.id, it.output.output.clone())),
-                    }
-                }
-                let how = if dialog { "Click to choose where to save; Alt-click to edit the template" } else { "Click to edit" };
-                resp.on_hover_text(format!("Template: {}\n{how}", it.output.output));
-                app.auto.add(&aid("outputPath"), path_rect, &shown);
+                let mut params = params.clone();
+                params["item"] = json!(it.id);
+                actions.push(("renderQueue.setOutput", params));
             }
         }
+        if editing.as_ref().is_some_and(|(id, _)| *id == it.id) {
+            let mut buf = editing.as_ref().map(|(_, b)| b.clone()).unwrap_or_default();
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(path_rect));
+            let response = child.add(
+                egui::TextEdit::singleline(&mut buf)
+                    .id_salt(("rq-editor", it.id))
+                    .desired_width(path_rect.width())
+                    .font(Tokens::ui(12.0))
+                    .margin(egui::Margin::symmetric(8, 4)),
+            );
+            app.auto.add(&aid("outputPath"), path_rect, &buf);
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                editing = None;
+                response.surrender_focus();
+            } else if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                if buf.trim().is_empty() {
+                    app.ui.status = "Output path cannot be empty".into();
+                    widgets::keep_focus(ui.ctx(), &response, &buf);
+                    editing = Some((it.id, buf));
+                } else {
+                    actions.push(("renderQueue.setOutput", json!({"item":it.id,"path":buf.trim()})));
+                    editing = None;
+                    response.surrender_focus();
+                }
+            } else {
+                widgets::keep_focus(ui.ctx(), &response, &buf);
+                editing = Some((it.id, buf));
+            }
+        } else {
+            let shown = app.session.resolve_output(it).unwrap_or_else(|| "Choose an output file…".into());
+            lp.rect_filled(path_rect, 3.0, t.field_bg);
+            lp.rect_stroke(path_rect, 3.0, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
+            widgets::text_fit(
+                &lp,
+                pos2(path_rect.min.x + 8.0, path_rect.center().y),
+                Align2::LEFT_CENTER,
+                &shown,
+                Tokens::ui(12.0),
+                (path_rect.width() - 16.0).max(0.0),
+                t.hot_text,
+            );
+            let response = ui.interact(path_rect, egui::Id::new(("rq-path", it.id)), Sense::click());
+            if response.clicked() && !rendering {
+                if ui.input(|i| i.modifiers.alt) {
+                    editing = Some((it.id, it.output.output.clone()));
+                } else {
+                    choose_file = true;
+                }
+            }
+            response.on_hover_text(format!("{shown}\nTemplate: {}\nClick to choose a file; use the arrow menu to edit the path.", it.output.output));
+            app.auto.add(&aid("outputPath"), path_rect, &shown);
+        }
+        if choose_file {
+            let picked = pick_output(app, it).or_else(|| {
+                let default = app.session.resolve_output(it).unwrap_or_default();
+                let name = std::path::Path::new(&default).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                app.hooks.pick_save.as_ref().map(|f| f(&name))
+            });
+            match picked {
+                Some(Some(path)) => actions.push(("renderQueue.setOutput", json!({"item":it.id,"path":path}))),
+                Some(None) => {}
+                None => editing = Some((it.id, it.output.output.clone())),
+            }
+        }
+        let quality = vec![
+            (mark(it.settings.quality == RenderQuality::Best, "Best"), json!({"quality":"best"})),
+            (mark(it.settings.quality == RenderQuality::Draft, "Draft"), json!({"quality":"draft"})),
+        ];
+        let resolutions: Vec<_> = [("Full", "full"), ("Half", "half"), ("Third", "third"), ("Quarter", "quarter")]
+            .into_iter()
+            .map(|(l, v)| (mark(it.settings.resolution_label() == l, l), json!({"resolution":v})))
+            .collect();
+        let formats: Vec<_> = available.iter().map(|f| (mark(it.output.format == *f, f.label()), json!({"format":format!("{f:?}")}))).collect();
+        let spans = vec![
+            (mark(it.settings.time_span == TimeSpan::WorkArea, "Work area"), json!({"timeSpan":"workArea"})),
+            (mark(it.settings.time_span == TimeSpan::LengthOfComp, "Entire composition"), json!({"timeSpan":"comp"})),
+            (mark(matches!(it.settings.time_span, TimeSpan::Custom { .. }), "Custom range…"), json!({"form":"timeSpan"})),
+        ];
+        let span_label = match it.settings.time_span {
+            TimeSpan::WorkArea => "Work area",
+            TimeSpan::LengthOfComp => "Entire composition",
+            TimeSpan::Custom { .. } => "Custom range",
+        };
+        let quality_label = format!("{:?}", it.settings.quality);
+        let fields = [
+            ("format", "Format", it.output.format.label(), formats, "renderQueue.setOutputModule"),
+            ("timeSpan", "Render range", span_label, spans, "renderQueue.setRenderSettings"),
+            ("quality", "Quality", quality_label.as_str(), quality, "renderQueue.setRenderSettings"),
+            ("resolution", "Resolution", it.settings.resolution_label(), resolutions, "renderQueue.setRenderSettings"),
+        ];
+        let start_y = output_y + 56.0;
+        let column_width = (content_width - (columns - 1) as f32 * 12.0) / columns as f32;
+        for (i, (key, label, shown, options, command)) in fields.into_iter().enumerate() {
+            let r = Rect::from_min_size(
+                pos2(content_x + (i % columns) as f32 * (column_width + 12.0), start_y + (i / columns) as f32 * 48.0),
+                vec2(column_width, 43.0),
+            );
+            if let Some(mut params) = choice(app, ui, r, it, key, label, shown, &options, !rendering && (key != "format" || !available.is_empty())) {
+                if let Some(form) = params.get("form").and_then(Value::as_str) {
+                    forms.push((it.clone(), form.into()));
+                } else {
+                    params["item"] = json!(it.id);
+                    actions.push((command, params));
+                }
+            }
+        }
+        let advanced_y = start_y + settings_height;
+        for (i, (key, label, shown, options, command)) in [
+            (
+                "renderSettings",
+                "Render settings / templates",
+                it.settings.name.as_str(),
+                settings_menu(it, &app.session.project.render_templates),
+                "renderQueue.setRenderSettings",
+            ),
+            (
+                "outputModule",
+                "Encoding / output templates",
+                if it.output.name.is_empty() { "Custom encoding…" } else { it.output.name.as_str() },
+                output_menu(it, &available, &app.session.project.render_templates),
+                "renderQueue.setOutputModule",
+            ),
+            (
+                "log",
+                "Render log",
+                it.log.label(),
+                RenderLog::ALL.iter().map(|log| (mark(it.log == *log, log.label()), json!({"log":log.label()}))).collect(),
+                "renderQueue.setLog",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let r = Rect::from_min_size(
+                pos2(content_x + (i % columns) as f32 * (column_width + 12.0), advanced_y + (i / columns) as f32 * 48.0),
+                vec2(column_width, 43.0),
+            );
+            if let Some(mut params) = choice(app, ui, r, it, key, label, shown, &options, !rendering) {
+                if let Some(form) = params.get("form").and_then(Value::as_str) {
+                    forms.push((it.clone(), form.into()));
+                } else {
+                    params["item"] = json!(it.id);
+                    actions.push((command, params));
+                }
+            }
+        }
+        let details_y = advanced_y + advanced_height + 14.0;
+        let info = app
+            .session
+            .project
+            .comp(it.comp)
+            .map(|c| {
+                let (w, h) = it.settings.output_size(c);
+                let (a, b) = it.settings.span(c);
+                format!(
+                    "{w} × {h} · {:.3} fps · {:.2} s · {} frames",
+                    it.settings.rate(c).as_f64(),
+                    (b.seconds() - a.seconds()).max(0.0),
+                    it.settings.frame_count(c)
+                )
+            })
+            .unwrap_or_else(|| "Composition missing".into());
+        widgets::text_fit(&lp, pos2(content_x, details_y), Align2::LEFT_CENTER, &info, Tokens::ui(11.0), content_width, t.text_dim);
+        let log_rect = Rect::from_min_size(pos2(content_x, details_y - 10.0), vec2(content_width, 20.0));
+        ui.interact(log_rect, egui::Id::new(("rq-details", it.id)), Sense::hover()).on_hover_text(format!(
+            "{info}\nStarted: {}\nRender time: {}\nLog: {}",
+            it.started.map(utc_stamp).unwrap_or_else(|| "Not started".into()),
+            it.render_time.map(hms).unwrap_or_else(|| "—".into()),
+            it.log.label()
+        ));
+        if let Some(error) = error {
+            widgets::text_fit(&lp, pos2(content_x, details_y + 26.0), Align2::LEFT_CENTER, &error, Tokens::ui(11.5), content_width, t.warning);
+            ui.interact(Rect::from_min_size(pos2(content_x, details_y + 16.0), vec2(content_width, 24.0)), egui::Id::new(("rq-error", it.id)), Sense::hover())
+                .on_hover_text(error);
+        }
+    }
+    if queue.is_empty() {
+        widgets::text_fit(
+            &lp,
+            pos2(list.min.x + 12.0, list.min.y + 22.0),
+            Align2::LEFT_CENTER,
+            "No renders yet. Add a composition above.",
+            Tokens::ui(12.0),
+            (list.width() - 24.0).max(0.0),
+            t.text_dim,
+        );
     }
     ui.set_clip_rect(panel_clip);
-    let content = y + scroll.offset - list.min.y;
-    scroll.end(ui, &mut app.auto, "renderQueue.scroll", content, &t);
-    ui.data_mut(|d| match &editing {
-        Some(e) => {
-            d.insert_temp(editing_id, e.clone());
+    let content_height = y + scroll.offset - list.min.y;
+    scroll.end(ui, &mut app.auto, "renderQueue.scroll", content_height, &t);
+    ui.data_mut(|d| match editing.as_ref() {
+        Some(edit) => {
+            d.insert_temp(editing_id, edit.clone());
         }
         None => d.remove::<(u64, String)>(editing_id),
     });
-
-    // Delete removes the selected item when the panel has focus.
     if app.ui.focused == crate::dock::PanelKind::RenderQueue
         && editing.is_none()
         && !rendering
-        && let Some(id) = selected
         && app.dialog.is_none()
-        && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
         && !ui.ctx().egui_wants_keyboard_input()
+        && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
+        && let Some(id) = selected
     {
-        actions.push(("renderQueue.remove", json!({"item": id})));
+        actions.push(("renderQueue.remove", json!({"item":id})));
         selected = None;
     }
-
-    // ---------------------------------------------------------- footer
-    let foot = Rect::from_min_max(pos2(rect.min.x, rect.max.y - FOOT_H), rect.max);
-    p.rect_filled(foot, 0.0, t.tl_ruler_bg);
+    p.rect_filled(foot, 0.0, t.panel_bg);
     p.line_segment([foot.left_top(), foot.right_top()], Stroke::new(1.0, t.separator));
-    let msg = match &progress {
-        Some(pr) if rendering => format!("Message: Rendering {} of {}", (pr.items_done + 1).min(pr.items_total), pr.items_total),
-        _ => {
-            let done = queue.iter().filter(|i| i.status == RenderStatus::Done).count();
-            format!("Message: {done} of {} done", queue.len())
-        }
-    };
-    p.text(pos2(foot.min.x + 12.0, foot.center().y), Align2::LEFT_CENTER, msg, Tokens::ui(11.0), t.text_dim);
-    let started = queue.iter().filter(|i| i.started.is_some()).count();
-    let total: f64 = queue.iter().filter_map(|i| i.render_time).sum();
-    p.text(
+    let notify = app.session.project.render_prefs.notify;
+    let nb = Rect::from_min_size(foot.min + vec2(12.0, 5.0), vec2(18.0, 18.0));
+    let full = Rect::from_min_size(nb.min, vec2(112.0, 18.0));
+    let square = widgets::checkbox(ui, nb, notify, &t, egui::Id::new("rq-notify"));
+    let label = ui.interact(Rect::from_min_max(pos2(nb.max.x, nb.min.y), full.max), egui::Id::new("rq-notify-label"), Sense::click());
+    if square.clicked() || label.clicked() {
+        actions.push(("renderQueue.setNotify", json!({"notify":!notify})));
+    }
+    widgets::text_fit(&p, pos2(nb.max.x + 6.0, nb.center().y), Align2::LEFT_CENTER, "Notify on finish", Tokens::ui(11.0), 88.0, t.text_dim);
+    app.auto.add("renderQueue.notify", full, "Notify on finish");
+    let done = queue.iter().filter(|it| it.status == RenderStatus::Done).count();
+    let total = progress.as_ref().filter(|_| rendering).map(|pr| pr.elapsed).unwrap_or_else(|| queue.iter().filter_map(|it| it.render_time).sum());
+    widgets::text_fit(
+        &p,
         pos2(foot.max.x - 12.0, foot.center().y),
         Align2::RIGHT_CENTER,
-        format!("Renders Started: {started}     Total Time Elapsed: {}", hms(progress.as_ref().filter(|_| rendering).map(|p| p.elapsed).unwrap_or(total))),
+        &format!("{done} / {} completed · {}", queue.len(), hms(total)),
         Tokens::ui(11.0),
+        (foot.width() - 148.0).max(0.0),
         t.text_dim,
     );
-
-    open.retain(|id| queue.iter().any(|i| i.id == *id));
+    open.retain(|id| queue.iter().any(|it| it.id == *id));
     ui.data_mut(|d| d.insert_temp(state_id, (open, selected)));
-    let ctx = ui.ctx().clone();
-    for (it, f) in forms {
-        open_menu_form(app, &it, &f);
+    for (item, form) in forms {
+        open_menu_form(app, &item, &form);
     }
+    let ctx = ui.ctx().clone();
     for (id, params) in actions {
-        if let Err(e) = crate::menus::invoke(app, &ctx, id, params) {
-            app.ui.status = e;
+        if let Err(error) = crate::menus::invoke(app, &ctx, id, params) {
+            app.ui.status = error;
         }
     }
 }

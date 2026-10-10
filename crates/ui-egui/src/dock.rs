@@ -52,10 +52,11 @@ pub enum PanelKind {
     VrCompEditor,
     /// Window ▸ Ease Presets (our own panel).
     EasePresets,
+    MotionComposer,
 }
 
 impl PanelKind {
-    pub const ALL: [PanelKind; 35] = [
+    pub const ALL: [PanelKind; 36] = [
         PanelKind::Project,
         PanelKind::EffectControls,
         PanelKind::Composition,
@@ -91,6 +92,7 @@ impl PanelKind {
         PanelKind::CreateNullsFromPaths,
         PanelKind::VrCompEditor,
         PanelKind::EasePresets,
+        PanelKind::MotionComposer,
     ];
     pub fn title(self) -> &'static str {
         match self {
@@ -131,6 +133,7 @@ impl PanelKind {
             PanelKind::CreateNullsFromPaths => "Create Nulls From Paths",
             PanelKind::VrCompEditor => "VR Comp Editor",
             PanelKind::EasePresets => "Ease Presets",
+            PanelKind::MotionComposer => "Motion Composer",
         }
     }
     pub fn id(self) -> String {
@@ -878,15 +881,19 @@ pub fn layout(ui: &mut egui::Ui, node: &mut DockNode, rect: Rect, t: &Tokens, pa
             }
         }
         DockNode::Split { vertical, size, a, b } => {
-            let g = t.gap;
             let total = if *vertical { rect.height() } else { rect.width() };
+            let total = if total.is_finite() { total.max(0.0) } else { 0.0 };
+            let g = t.gap.min(total);
             let avail = (total - g).max(0.0);
+            // Both children share the minimum when the window is too small for 20 pt each.
+            // The old lower/upper bounds crossed below 40 pt and resizing could panic.
+            let minimum = 20.0_f32.min(avail / 2.0);
             let first = match *size {
-                SplitSize::Ratio(r) => avail * r,
-                SplitSize::FixedA(px) => px.min(avail - 20.0),
-                SplitSize::FixedB(px) => avail - px.min(avail - 20.0),
+                SplitSize::Ratio(r) => avail * if r.is_finite() { r } else { 0.5 },
+                SplitSize::FixedA(px) => px.min(avail - minimum),
+                SplitSize::FixedB(px) => avail - px.min(avail - minimum),
             }
-            .clamp(20.0_f32.min(avail), (avail - 20.0).max(0.0));
+            .clamp(minimum, avail - minimum);
             let (ra, gutter_rect, rb) = if *vertical {
                 (
                     Rect::from_min_max(rect.min, pos2(rect.max.x, rect.min.y + first)),
@@ -1037,10 +1044,6 @@ pub fn draw_group_chrome(ui: &mut egui::Ui, g: &Group, focused: PanelKind, t: &T
         }
         let ai = entries.iter().position(|e| e.active).unwrap_or(0);
         let strip = Rect::from_min_size(g.rect.min, vec2(g.rect.width(), t.tab_h));
-        if t.gradients {
-            // Settings ▸ Appearance ▸ Use Gradients.
-            crate::theme::gradient_rect(&painter, strip.shrink2(vec2(t.radius, 0.0)), t.grad_top(t.panel_bg), t.panel_bg);
-        }
         let activate = |e: &Entry| match e.doc {
             Some(id) => DockAction::ActivateDoc(e.panel, id),
             None => DockAction::Activate(e.panel),
@@ -1187,6 +1190,34 @@ pub fn placeholder(ui: &mut egui::Ui, rect: Rect, t: &Tokens, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A narrow window used to produce crossed clamp bounds in nested dock splits.
+    #[test]
+    fn split_layout_handles_less_than_two_minimum_panels() {
+        let ctx = egui::Context::default();
+        let tokens = Tokens::for_kind(crate::theme::ThemeKind::Dark);
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            ui.scope(|ui| {
+                for width in [0.0, 4.0, 16.0, 24.0, 39.0, 80.0] {
+                    for size in [SplitSize::Ratio(0.5), SplitSize::FixedA(300.0), SplitSize::FixedB(300.0)] {
+                        let mut node = DockNode::Split {
+                            vertical: false,
+                            size,
+                            a: Box::new(tabs(&[PanelKind::Project], 0)),
+                            b: Box::new(tabs(&[PanelKind::Timeline], 0)),
+                        };
+                        let mut groups = vec![];
+                        layout(ui, &mut node, Rect::from_min_size(pos2(0.0, 0.0), vec2(width, 100.0)), &tokens, "tiny", &mut groups, &mut Default::default());
+                        assert_eq!(groups.len(), 2);
+                        for group in groups {
+                            assert!(group.rect.width() >= 0.0 && group.rect.right() <= width);
+                        }
+                    }
+                }
+            });
+        });
+        output.textures_delta.clear();
+    }
 
     #[test]
     fn stacked_panels_toggle_open_close() {

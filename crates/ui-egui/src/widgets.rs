@@ -188,7 +188,8 @@ pub fn text_fit(p: &egui::Painter, pos: egui::Pos2, align: Align2, text: &str, f
     job.wrap = egui::text::TextWrapping { max_width: max_w.max(0.0), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
     let galley = p.layout_job(job);
     let rect = align.anchor_size(pos, galley.size());
-    p.galley(rect.min, galley, color);
+    let bounds = align.anchor_size(pos, vec2(max_w.max(0.0), galley.size().y));
+    p.with_clip_rect(bounds.intersect(p.clip_rect())).galley(rect.min, galley, color);
     rect
 }
 
@@ -203,9 +204,8 @@ pub fn text_field(ui: &mut Ui, rect: Rect, text: &mut String, hint: &str, t: &To
 }
 
 fn field(ui: &mut Ui, rect: Rect, text: &mut String, hint: &str, t: &Tokens, search: bool) -> Response {
-    let h = rect.height();
-    ui.painter().rect_filled(rect, h / 2.0, t.field_bg);
-    ui.painter().rect_stroke(rect, h / 2.0, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
+    ui.painter().rect_filled(rect, 3.0, t.field_bg);
+    ui.painter().rect_stroke(rect, 3.0, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
     if search {
         icons::paint(ui.painter(), Rect::from_center_size(pos2(rect.min.x + 12.0, rect.center().y), vec2(12.0, 12.0)), Icon::Search, t.text_dim);
     }
@@ -226,23 +226,18 @@ pub fn dropdown(ui: &mut Ui, rect: Rect, text: &str, t: &Tokens, id: egui::Id) -
     let resp = ui.interact(rect, id, Sense::click());
     ui.painter().rect_filled(rect, 3.0, if resp.hovered() { t.hover } else { t.field_bg });
     ui.painter().rect_stroke(rect, 3.0, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
-    // Text that doesn't fit before the arrow is elided (narrow panels).
-    let room = rect.width() - 7.0 - 18.0;
+    // Reserve a consistent inset and a separate arrow area, including in narrow panels.
+    let room = (rect.width() - 8.0 - 20.0).max(0.0);
     let fits = |s: &str| ui.painter().layout_no_wrap(s.to_string(), Tokens::ui(11.5), t.text).size().x <= room;
-    let shown = if fits(text) {
-        text.to_string()
-    } else {
-        let chars: Vec<char> = text.chars().collect();
-        let mut n = chars.len();
-        loop {
-            n = n.saturating_sub(1);
-            let s: String = chars[..n].iter().collect::<String>().trim_end().to_string() + "…";
-            if n == 0 || fits(&s) {
-                break s;
-            }
-        }
-    };
-    ui.painter().text(pos2(rect.min.x + 7.0, rect.center().y), Align2::LEFT_CENTER, shown, Tokens::ui(11.5), t.text);
+    text_fit(
+        ui.painter(),
+        pos2(rect.min.x + 8.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        text,
+        Tokens::ui(12.0),
+        room,
+        if ui.is_enabled() { t.text } else { t.text_faint },
+    );
     icons::paint(ui.painter(), Rect::from_center_size(pos2(rect.max.x - 9.0, rect.center().y), vec2(8.0, 8.0)), Icon::ChevronDown, t.text_dim);
     if text.chars().count() > 0 && !fits(text) {
         return resp.on_hover_text(text.to_string());
@@ -253,16 +248,25 @@ pub fn dropdown(ui: &mut Ui, rect: Rect, text: &str, t: &Tokens, id: egui::Id) -
 /// Text button with a subtle fill.
 pub fn text_button(ui: &mut Ui, rect: Rect, text: &str, primary: bool, t: &Tokens, id: egui::Id) -> Response {
     let resp = ui.interact(rect, id, Sense::click());
-    let bg = if primary {
+    let bg = if !ui.is_enabled() {
+        t.field_bg
+    } else if primary {
         if resp.hovered() { t.accent_hover } else { t.accent }
     } else if resp.hovered() {
         t.pressed
     } else {
         t.hover
     };
-    ui.painter().rect_filled(rect, rect.height() / 2.0, bg);
-    ui.painter().text(rect.center(), Align2::CENTER_CENTER, text, Tokens::medium(12.0), if primary { Color32::WHITE } else { t.text });
-    resp
+    ui.painter().rect_filled(rect, 3.0, bg);
+    let color = if !ui.is_enabled() {
+        t.text_faint
+    } else if primary {
+        Color32::WHITE
+    } else {
+        t.text
+    };
+    text_fit(ui.painter(), rect.center(), Align2::CENTER_CENTER, text, Tokens::medium(12.0), (rect.width() - 16.0).max(0.0), color);
+    if ui.painter().layout_no_wrap(text.to_owned(), Tokens::medium(12.0), color).size().x > rect.width() - 16.0 { resp.on_hover_text(text) } else { resp }
 }
 
 /// Checkbox in the AE look (small square).

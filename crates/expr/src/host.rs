@@ -37,6 +37,8 @@ pub enum Req {
     LayerLookup { comp: u64, key: Key },
     /// `[name, index, inPoint, outPoint, startTime, width, height, parentId|null, hasVideo, is3D, source, enabled]`.
     LayerInfo { comp: u64, layer: u64 },
+    /// The layer's source item: `["Comp", itemId]` or `["Footage", footageInfo]`, or null.
+    LayerSource { comp: u64, layer: u64 },
     /// `[path, isGroup, name, matchName, numChildren]` or null.
     Child { comp: u64, layer: u64, group: String, key: Key },
     /// `[name, uid, kind, dims, keyTimes, keyValues, hasExpression, propertyIndex, matchName]`.
@@ -344,6 +346,42 @@ impl<'a> Resolver<'a> {
                     Resp::Str(l.source.type_name().to_string()),
                     Resp::Bool(l.switches.video),
                 ])
+            }
+            Req::LayerSource { comp, layer } => {
+                let l = self.layer(*comp, *layer)?;
+                let item = project.item(l.source.item()?)?;
+                match &item.kind {
+                    ItemKind::Comp(_) => Resp::List(vec![Resp::Str("Comp".into()), Resp::Num(item.id.0 as f64)]),
+                    ItemKind::Footage(f) => Resp::List(vec![
+                        Resp::Str("Footage".into()),
+                        Resp::List(vec![
+                            Resp::Str(item.name.clone()),
+                            Resp::Num(f.width as f64),
+                            Resp::Num(f.height as f64),
+                            Resp::Num(f.duration.seconds()),
+                            Resp::Num(f.frame_rate.frame_duration().seconds()),
+                            Resp::Num(f.pixel_aspect),
+                            Resp::Str(item.type_name().into()),
+                            f.data.clone().map_or(Resp::Null, Resp::Str),
+                            f.data_format().map_or(Resp::Null, |x| Resp::Str(x.into())),
+                        ]),
+                    ]),
+                    ItemKind::Solid(s) => Resp::List(vec![
+                        Resp::Str("Footage".into()),
+                        Resp::List(vec![
+                            Resp::Str(item.name.clone()),
+                            Resp::Num(s.width as f64),
+                            Resp::Num(s.height as f64),
+                            Resp::Num(self.comp(*comp)?.duration.seconds()),
+                            Resp::Num(self.comp(*comp)?.frame_duration().seconds()),
+                            Resp::Num(s.pixel_aspect),
+                            Resp::Str(item.type_name().into()),
+                            Resp::Null,
+                            Resp::Null,
+                        ]),
+                    ]),
+                    ItemKind::Folder => return None,
+                }
             }
             Req::Child { comp, layer, group, key } => {
                 let l = self.layer(*comp, *layer)?;

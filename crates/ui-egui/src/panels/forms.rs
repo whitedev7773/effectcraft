@@ -668,22 +668,26 @@ pub fn open_form(app: &mut EffectcraftApp, id: &str, p: &Value) -> bool {
 pub fn show_form(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
     let mut f = app.dialog_state.form.clone();
     let (mut ok, mut close) = (false, false);
-    let h = 120.0 + f.fields.len() as f32 * 30.0;
+    let h = 128.0 + f.fields.len() as f32 * 34.0;
     let mut regs: Vec<(String, egui::Rect, String)> = vec![];
     let mut browse: Option<usize> = None;
     super::dialogs::modal(ctx, &f.title.clone(), vec2(440.0, h), t, |ui| {
-        egui::Grid::new("form-grid").num_columns(2).spacing([14.0, 10.0]).show(ui, |ui| {
+        let label_w = (ui.available_width() * 0.34).clamp(80.0, 140.0);
+        let field_w = (ui.available_width() - label_w - 16.0).max(60.0);
+        egui::Grid::new("form-grid").num_columns(2).spacing([16.0, 8.0]).min_row_height(26.0).show(ui, |ui| {
             for (i, fl) in f.fields.iter_mut().enumerate() {
-                ui.label(&fl.label);
+                let (label_rect, label_response) = ui.allocate_exact_size(vec2(label_w, 26.0), egui::Sense::hover());
+                crate::widgets::text_fit(ui.painter(), label_rect.left_center(), egui::Align2::LEFT_CENTER, &fl.label, Tokens::ui(12.0), label_w, t.text);
+                label_response.on_hover_text(&fl.label);
                 let r = match &mut fl.kind {
                     FieldKind::Number { value, speed } => {
                         let dec = if *speed < 0.01 { 5 } else { 3 };
                         ui.add(egui::DragValue::new(value).speed(*speed).max_decimals(dec)).rect
                     }
-                    FieldKind::Text(s) => ui.add(egui::TextEdit::singleline(s).desired_width(220.0)).rect,
+                    FieldKind::Text(s) => ui.add(egui::TextEdit::singleline(s).desired_width(field_w - 8.0)).rect,
                     FieldKind::Path { value, .. } => {
                         ui.horizontal(|ui| {
-                            let r = ui.add(egui::TextEdit::singleline(value).desired_width(150.0)).rect;
+                            let r = ui.add(egui::TextEdit::singleline(value).desired_width((field_w - 88.0).max(40.0))).rect;
                             let b = ui.button("Browse…");
                             regs.push((format!("form.field.{}.browse", fl.key), b.rect, "Browse…".into()));
                             if b.clicked() {
@@ -695,7 +699,7 @@ pub fn show_form(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
                     }
                     FieldKind::SavePath(value) => {
                         ui.horizontal(|ui| {
-                            let r = ui.add(egui::TextEdit::singleline(value).desired_width(150.0)).rect;
+                            let r = ui.add(egui::TextEdit::singleline(value).desired_width((field_w - 88.0).max(40.0))).rect;
                             let b = ui.button("Browse…");
                             regs.push((format!("form.field.{}.browse", fl.key), b.rect, "Browse…".into()));
                             if b.clicked() {
@@ -711,7 +715,7 @@ pub fn show_form(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
                         let cur = options.get(*sel).map(|o| o.0.clone()).unwrap_or_default();
                         egui::ComboBox::from_id_salt(("form", fl.key.as_str()))
                             .selected_text(cur)
-                            .width(240.0)
+                            .width(field_w)
                             .show_ui(ui, |ui| {
                                 for (i, (l, _)) in options.iter().enumerate() {
                                     ui.selectable_value(sel, i, l);
@@ -727,12 +731,12 @@ pub fn show_form(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
         });
         ui.add_space(14.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let b = ui.add(egui::Button::new(egui::RichText::new("   OK   ").color(Color32::WHITE)).fill(t.accent));
+            let b = ui.add(egui::Button::new(egui::RichText::new("OK").color(Color32::WHITE)).min_size(vec2(80.0, 28.0)).fill(t.accent));
             regs.push(("form.ok".into(), b.rect, "OK".into()));
             if b.clicked() {
                 ok = true;
             }
-            let c = ui.button("Cancel");
+            let c = ui.add(egui::Button::new("Cancel").min_size(vec2(80.0, 28.0)));
             regs.push(("form.cancel".into(), c.rect, "Cancel".into()));
             if c.clicked() {
                 close = true;
@@ -790,7 +794,7 @@ pub fn show_info(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
         ui.label(body);
         ui.add_space(16.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.add(egui::Button::new(egui::RichText::new("   OK   ").color(Color32::WHITE)).fill(t.accent)).clicked() {
+            if ui.add(egui::Button::new(egui::RichText::new("OK").color(Color32::WHITE)).min_size(vec2(80.0, 28.0)).fill(t.accent)).clicked() {
                 close = true;
             }
         });
@@ -813,7 +817,7 @@ pub fn show_view_options(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Toke
         ui.checkbox(&mut v.transparency_grid, "Transparency grid");
         ui.add_space(12.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.add(egui::Button::new(egui::RichText::new("   OK   ").color(Color32::WHITE)).fill(t.accent)).clicked() {
+            if ui.add(egui::Button::new(egui::RichText::new("OK").color(Color32::WHITE)).min_size(vec2(80.0, 28.0)).fill(t.accent)).clicked() {
                 close = true;
             }
         });

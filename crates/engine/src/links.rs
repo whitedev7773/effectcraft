@@ -1,9 +1,7 @@
-//! Community and project links (shown in Help ▸, the About dialog, the start screen and the
-//! header's Discord button).
+//! Project links shown in Help, the About dialog and the start screen.
 
 pub const APP_NAME: &str = "EffectCraft";
 pub const APP_SLUG: &str = "effectcraft";
-pub const DISCORD: &str = "https://discord.gg/artcraft";
 pub const WEBSITE: &str = "https://getartcraft.com";
 pub const APP_PAGE: &str = "https://getartcraft.com/apps/effectcraft";
 pub const GITHUB: &str = "https://github.com/storytold/effectcraft";

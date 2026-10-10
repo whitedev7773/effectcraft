@@ -53,9 +53,10 @@ pub fn preview(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let mut changes: Vec<serde_json::Value> = vec![];
     let x0 = rect.min.x + 12.0;
     let xv = rect.min.x + 92.0;
-    let wv = (rect.max.x - xv - 12.0).clamp(80.0, 240.0);
+    let wv = (rect.max.x - xv - 12.0).clamp(0.0, 320.0);
+    let content_w = (rect.width() - 24.0).clamp(0.0, 400.0);
     let label = |yy: f32, k: &str| {
-        p.text(pos2(x0, yy), Align2::LEFT_CENTER, k, Tokens::ui(12.0), t.text_dim);
+        widgets::text_fit(&p, pos2(x0, yy), Align2::LEFT_CENTER, k, Tokens::ui(12.0), 72.0, t.text_dim);
     };
     let mut yy = y + 46.0;
 
@@ -65,7 +66,7 @@ pub fn preview(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     if let Some(i) = dropdown_row(
         app,
         ui,
-        Rect::from_min_size(pos2(xv, yy - 10.0), vec2(wv, 20.0)),
+        Rect::from_min_size(pos2(xv, yy - 13.0), vec2(wv, 26.0)),
         "shortcut",
         current.label(),
         &names,
@@ -74,7 +75,7 @@ pub fn preview(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
         let s = PreviewShortcut::ALL[i];
         changes.push(json!({"shortcut": s.id(), "current": s.id()}));
     }
-    yy += 26.0;
+    yy += 32.0;
 
     // Include Video / Audio / Overlays / Layer Controls, Loop, Cache Before Playback.
     let checks: [(&str, &str, bool); 6] = [
@@ -88,13 +89,13 @@ pub fn preview(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     for (i, (key, text, on)) in checks.into_iter().enumerate() {
         let col = if i < 4 { i % 2 } else { 0 };
         let row = if i < 4 { i / 2 } else { i - 2 };
-        let cx = x0 + col as f32 * 110.0 - 2.0;
-        let cy = yy + row as f32 * 22.0;
+        let cx = x0 + col as f32 * (content_w / 2.0);
+        let cy = yy + row as f32 * 28.0;
         if check_row(app, ui, &p, pos2(cx, cy), key, text, on) {
             changes.push(json!({"shortcut": current.id(), key: !on}));
         }
     }
-    yy += 4.0 * 22.0 + 6.0;
+    yy += 4.0 * 28.0 + 12.0;
 
     // Range (and the pre/post-roll of Play Around Current Time).
     label(yy, "Range");
@@ -103,7 +104,7 @@ pub fn preview(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     if let Some(i) = dropdown_row(
         app,
         ui,
-        Rect::from_min_size(pos2(xv, yy - 10.0), vec2(wv, 20.0)),
+        Rect::from_min_size(pos2(xv, yy - 13.0), vec2(wv, 26.0)),
         "range",
         o.range.label(),
         &ranges,
@@ -111,7 +112,7 @@ pub fn preview(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     ) {
         changes.push(json!({"shortcut": current.id(), "range": range_ids[i]}));
     }
-    yy += 24.0;
+    yy += 32.0;
     if o.range == PreviewRange::AroundCurrentTime {
         for (k, (key, text, v)) in [("preRoll", "Pre-roll", o.pre_roll), ("postRoll", "Post-roll", o.post_roll)].into_iter().enumerate() {
             let lx = xv + k as f32 * 100.0;
@@ -122,7 +123,7 @@ pub fn preview(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 changes.push(json!({"shortcut": current.id(), key: nv}));
             }
         }
-        yy += 22.0;
+        yy += 28.0;
     }
 
     // Play From.
@@ -131,7 +132,7 @@ pub fn preview(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     if let Some(i) = dropdown_row(
         app,
         ui,
-        Rect::from_min_size(pos2(xv, yy - 10.0), vec2(wv, 20.0)),
+        Rect::from_min_size(pos2(xv, yy - 13.0), vec2(wv, 26.0)),
         "playFrom",
         o.play_from.label(),
         &froms,
@@ -139,7 +140,7 @@ pub fn preview(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     ) {
         changes.push(json!({"shortcut": current.id(), "playFrom": (["rangeStart", "currentTime"][i])}));
     }
-    yy += 26.0;
+    yy += 32.0;
 
     // Frame Rate, Skip, Resolution.
     let comp_fps = app.session.active_comp().map(|c| c.frame_rate.as_f64());
@@ -153,25 +154,27 @@ pub fn preview(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
         None => Some(0),
         Some(r) => RATES.iter().position(|x| (x - r).abs() < 1e-3).map(|i| i + 1),
     };
-    if let Some(i) = dropdown_row(app, ui, Rect::from_min_size(pos2(xv, yy - 10.0), vec2(96.0, 20.0)), "frameRate", &rate_text, &rates, rate_cur) {
+    if let Some(i) =
+        dropdown_row(app, ui, Rect::from_min_size(pos2(xv, yy - 13.0), vec2((wv - 80.0).max(0.0), 26.0)), "frameRate", &rate_text, &rates, rate_cur)
+    {
         let v = if i == 0 { json!("auto") } else { json!(RATES[i - 1]) };
         changes.push(json!({"shortcut": current.id(), "frameRate": v}));
     }
-    let sx = xv + 106.0;
+    let sx = xv + (wv - 72.0).max(0.0);
     p.text(pos2(sx, yy), Align2::LEFT_CENTER, "Skip", Tokens::ui(12.0), t.text_dim);
     let (r, nv, _) = widgets::hot_number_at(ui, pos2(sx + 30.0, yy - 9.0), egui::Id::new("pv-skip"), o.skip as f64, 0.1, (0.0, 99.0), 0, "", &t);
     app.auto.add("preview.skip", r, "Skip");
     if let Some(nv) = nv {
         changes.push(json!({"shortcut": current.id(), "skip": nv.round() as u32}));
     }
-    yy += 24.0;
+    yy += 32.0;
     label(yy, "Resolution");
     let ress: Vec<String> = PreviewResolution::ALL.iter().map(|r| r.label().to_string()).collect();
     let res_ids = ["auto", "full", "half", "third", "quarter", "custom"];
     if let Some(i) = dropdown_row(
         app,
         ui,
-        Rect::from_min_size(pos2(xv, yy - 10.0), vec2(96.0, 20.0)),
+        Rect::from_min_size(pos2(xv, yy - 13.0), vec2((wv - 80.0).max(0.0), 26.0)),
         "resolution",
         o.resolution.label(),
         &ress,
@@ -180,18 +183,27 @@ pub fn preview(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
         changes.push(json!({"shortcut": current.id(), "resolution": res_ids[i]}));
     }
     if o.resolution == PreviewResolution::Custom {
-        let (r, nv, _) =
-            widgets::hot_number_at(ui, pos2(xv + 106.0, yy - 9.0), egui::Id::new("pv-custom-res"), o.custom_resolution as f64, 0.1, (1.0, 40.0), 0, "", &t);
+        let (r, nv, _) = widgets::hot_number_at(
+            ui,
+            pos2(xv + (wv - 64.0).max(0.0), yy - 9.0),
+            egui::Id::new("pv-custom-res"),
+            o.custom_resolution as f64,
+            0.1,
+            (1.0, 40.0),
+            0,
+            "",
+            &t,
+        );
         app.auto.add("preview.customResolution", r, "Custom Resolution");
         if let Some(nv) = nv {
             changes.push(json!({"shortcut": current.id(), "customResolution": nv.round() as u32}));
         }
     }
-    yy += 24.0;
+    yy += 32.0;
     if check_row(app, ui, &p, pos2(x0 - 2.0, yy), "fullScreen", "Full Screen", o.full_screen) {
         changes.push(json!({"shortcut": current.id(), "fullScreen": !o.full_screen}));
     }
-    yy += 24.0;
+    yy += 32.0;
 
     // What stopping does.
     p.text(pos2(x0, yy), Align2::LEFT_CENTER, format!("On ({}) stop:", current.label()), Tokens::ui(11.5), t.text_dim);
@@ -199,11 +211,11 @@ pub fn preview(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     if check_row(app, ui, &p, pos2(x0 - 2.0, yy), "playCachedFrames", "If caching, play cached frames", o.play_cached_frames) {
         changes.push(json!({"shortcut": current.id(), "playCachedFrames": !o.play_cached_frames}));
     }
-    yy += 22.0;
+    yy += 28.0;
     if check_row(app, ui, &p, pos2(x0 - 2.0, yy), "moveTimeToPreviewTime", "Move time to preview time", o.move_time_to_preview_time) {
         changes.push(json!({"shortcut": current.id(), "moveTimeToPreviewTime": !o.move_time_to_preview_time}));
     }
-    yy += 24.0;
+    yy += 32.0;
     for c in changes {
         if let Err(e) = app.session.execute("playback.settings.set", c) {
             app.ui.status = e.to_string();
@@ -238,11 +250,14 @@ fn fmt_rate(r: f64) -> String {
 /// A checkbox with its label; returns true when clicked.
 fn check_row(app: &mut EffectcraftApp, ui: &mut egui::Ui, p: &egui::Painter, at: egui::Pos2, key: &str, text: &str, on: bool) -> bool {
     let t = app.tokens;
-    let r = Rect::from_min_size(pos2(at.x, at.y - 8.0), vec2(16.0, 16.0));
-    let clicked = widgets::checkbox(ui, r, on, &t, egui::Id::new(("pv-check", key))).clicked();
-    p.text(pos2(r.max.x + 5.0, at.y), Align2::LEFT_CENTER, text, Tokens::ui(12.0), t.text);
-    app.auto.add(&format!("preview.{key}"), r, text);
-    clicked
+    let r = Rect::from_min_size(pos2(at.x, at.y - 9.0), vec2(18.0, 18.0));
+    let square = widgets::checkbox(ui, r, on, &t, egui::Id::new(("pv-check", key)));
+    let width = p.layout_no_wrap(text.to_owned(), Tokens::ui(12.0), t.text).size().x;
+    let label_rect = Rect::from_min_size(pos2(r.max.x, r.min.y), vec2((width + 6.0).min((p.clip_rect().right() - r.max.x - 12.0).max(0.0)), r.height()));
+    let label = ui.interact(label_rect, egui::Id::new(("pv-check-label", key)), Sense::click());
+    widgets::text_fit(p, pos2(r.max.x + 6.0, at.y), Align2::LEFT_CENTER, text, Tokens::ui(12.0), (label_rect.width() - 6.0).max(0.0), t.text);
+    app.auto.add(&format!("preview.{key}"), r.union(label_rect), text);
+    square.clicked() || label.clicked()
 }
 
 /// A dropdown with its popup list (automation ids `preview.<key>` and `preview.<key>.<i>`);

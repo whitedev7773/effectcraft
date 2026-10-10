@@ -9,7 +9,7 @@ use effectcraft_project::render_queue::{
 };
 use effectcraft_project::{Comp, Project};
 use effectcraft_raster::Image;
-use effectcraft_render::{RenderOpts, Renderer};
+use effectcraft_render::{LayerCache, RenderOpts, Renderer};
 use effectcraft_time::Tick;
 use web_time::Instant;
 
@@ -24,6 +24,8 @@ pub(crate) struct Cx<'a> {
     pub frame_times: Option<Mutex<Vec<(u64, f64)>>>,
     /// Files written to an overflow folder.
     pub overflowed: Mutex<Vec<String>>,
+    /// Each export owns its cache: settings/footage cannot change during a job.
+    cache: LayerCache,
 }
 
 impl<'a> std::ops::Deref for Cx<'a> {
@@ -68,7 +70,7 @@ impl<'a> Cx<'a> {
         let mut project = job.project.clone();
         apply_overrides(&mut project, job);
         let frame_times = (job.options.log == RenderLog::PlusPerFrameInfo).then(|| Mutex::new(Vec::new()));
-        Cx { job, project, frame_times, overflowed: Mutex::new(vec![]) }
+        Cx { job, project, frame_times, overflowed: Mutex::new(vec![]), cache: LayerCache::default() }
     }
 
     pub fn comp(&self) -> Option<&Comp> {
@@ -93,6 +95,11 @@ impl<'a> Cx<'a> {
         let mut r = Renderer::new(&self.project, self.job.footage, opts);
         r.expr = self.job.expr;
         r.accel = self.job.accel;
+        // Deferred GPU passes may contain placeholder pixels. Keep their existing uncached
+        // path; native exports reuse the exact evaluated layer and mask buffers.
+        if !self.deferred() {
+            r.cache = Some(&self.cache);
+        }
         // With deferred GPU readbacks (a browser worker) the frame renders in passes.
         effectcraft_render::passes::comp_frame(&r, self.job.comp, t).await
     }
@@ -104,17 +111,64 @@ impl<'a> Cx<'a> {
 
     /// Output frames `ks`, each mapped by `f` (encoding): rendered in parallel batches, or one
     /// by one in passes when readbacks are deferred ([`Cx::deferred`]).
-    pub async fn frames<T: Send>(&self, comp: &Comp, ks: Vec<u64>, f: impl Fn(u64, Image) -> T + Sync + Send) -> Vec<T> {
+    pub async fn frames<T: Send>(&self, comp: &Comp, ks: Vec<u64>, f: impl Fn(u64, Image) -> T + Sync + Send) -> crate::Result<Vec<T>> {
         if self.deferred() {
             let mut out = Vec::with_capacity(ks.len());
             for k in ks {
                 let img = self.frame_async(comp, k).await;
                 out.push(f(k, img));
             }
-            return out;
+            return Ok(out);
         }
-        use rayon::prelude::*;
-        ks.into_par_iter().map(|k| f(k, self.frame(comp, k))).collect()
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Large frame buffers/GPU textures need bounded concurrency. Pixel operations
+            // inside these workers can still use the entire Rayon pool.
+            let workers = if self.job.accel.is_some() { 1 } else { rayon::current_num_threads().min(4) };
+            crate::workers::ordered_map(&ks, workers, |k| f(k, self.frame(comp, k)))
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            Ok(ks.into_iter().map(|k| f(k, self.frame(comp, k))).collect())
+        }
+    }
+
+    /// Native rendering overlaps ordered encoding; browser deferred readbacks stay async.
+    pub async fn batches<T: Send>(
+        &self,
+        comp: &Comp,
+        start: u64,
+        total: u64,
+        render: impl Fn(u64, Image) -> T + Sync + Send,
+        mut consume: impl FnMut(u64, u64, Vec<T>) -> crate::Result<()>,
+    ) -> crate::Result<()> {
+        let batch = crate::batch_size();
+        #[cfg(not(target_arch = "wasm32"))]
+        if !self.deferred() && self.prefetch_fits(comp, batch) {
+            return crate::workers::batches(
+                start,
+                total,
+                batch,
+                |i, end| effectcraft_render::passes::block_on(self.frames(comp, (i..end).collect(), &render)),
+                consume,
+            );
+        }
+        let mut i = start;
+        while i < total {
+            let end = i.saturating_add(batch).min(total);
+            let frames = self.frames(comp, (i..end).collect(), &render).await?;
+            consume(i, end, frames)?;
+            i = end;
+        }
+        Ok(())
+    }
+
+    /// Very large output frames keep the sequential encoder path instead of adding another
+    /// batch of RGBA buffers to memory. The render worker/cache budgets still apply.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn prefetch_fits(&self, comp: &Comp, batch: u64) -> bool {
+        let (w, h) = crate::output_size(comp, self.settings, self.output);
+        u64::from(w).checked_mul(u64::from(h)).and_then(|n| n.checked_mul(4)).and_then(|n| n.checked_mul(batch)).is_some_and(|n| n <= 128 << 20)
     }
 
     /// Output frame `i`: sampled (fields, pulldown), at the colour depth, cropped and resized.

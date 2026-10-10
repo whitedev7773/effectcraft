@@ -103,15 +103,15 @@ const BUILTINS: &[Builtin] = &[
     },
     Builtin {
         id: "social-square",
-        name: "Social Square 1080×1080",
-        category: "Social",
-        description: "A square post: headline, accent circle and handle. Essential Graphics: Headline, Handle, Accent Color.",
-        build: social_square,
+        name: "Square Title 1080×1080",
+        category: "Layouts",
+        description: "A square title: headline, accent circle and caption. Essential Graphics: Headline, Caption, Accent Color.",
+        build: square_title,
     },
     Builtin {
         id: "vertical-story",
         name: "Vertical 9:16 Story",
-        category: "Social",
+        category: "Layouts",
         description: "A 1080×1920 story with a headline and a bobbing call to action. Essential Graphics: Headline, Call to Action.",
         build: vertical_story,
     },
@@ -292,20 +292,20 @@ fn kinetic_type(s: &mut Session) -> Result<()> {
     finish(s, "Kinetic Type", 2.0)
 }
 
-fn social_square(s: &mut Session) -> Result<()> {
-    comp(s, "Social Square", 1080, 1080, 6.0, "#0E1A2B")?;
+fn square_title(s: &mut Session) -> Result<()> {
+    comp(s, "Square Title", 1080, 1080, 6.0, "#0E1A2B")?;
     let bg = solid(s, "Background", "#000000")?;
     gradient(s, bg, [0.0, 0.0], [1080.0, 1080.0], "#0F4C5C", "#0B1320", false)?;
     let dot = shape(s, "Accent Circle", "ellipse", [400.0, 400.0], "#FF6B6B", [830.0, 250.0])?;
     keys(s, dot, "transform/scale", &[(0.0, sc(0.0)), (0.8, sc(100.0)), (6.0, sc(112.0))]);
     let head = text(s, "Big news\ndrops today", [540.0, 600.0], 104.0, "#FFFFFF")?;
     keys(s, head, "transform/opacity", &[(0.3, op(0.0)), (1.0, op(100.0))]);
-    let handle = text(s, "@yourhandle", [540.0, 930.0], 44.0, "#BFE9F0")?;
-    keys(s, handle, "transform/opacity", &[(0.9, op(0.0)), (1.5, op(100.0))]);
+    let caption = text(s, "Your caption", [540.0, 930.0], 44.0, "#BFE9F0")?;
+    keys(s, caption, "transform/opacity", &[(0.9, op(0.0)), (1.5, op(100.0))]);
     expose(s, head, "text/sourceText", "Headline")?;
-    expose(s, handle, "text/sourceText", "Handle")?;
+    expose(s, caption, "text/sourceText", "Caption")?;
     expose(s, dot, "contents/group#1/contents/fill/color", "Accent Color")?;
-    finish(s, "Social Square", 2.0)
+    finish(s, "Square Title", 2.0)
 }
 
 fn vertical_story(s: &mut Session) -> Result<()> {

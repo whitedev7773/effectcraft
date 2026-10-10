@@ -1,0 +1,8 @@
+asset:        stopwatch.svg
+title:        Gravity UI stopwatch icon
+author:       YANDEX LLC and Gravity UI contributors
+source:       https://github.com/gravity-ui/icons/blob/5fade87690de42eca78b419e2509df39b325517d/svgs/stopwatch.svg
+license:      MIT
+license-file: assets/icons/gravity/LICENSE.txt
+added:        2026-10-09 by EffectCraft contributors
+notes:        Unmodified upstream SVG; rendered and tinted with the current UI theme.

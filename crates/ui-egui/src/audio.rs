@@ -239,7 +239,12 @@ impl AudioPlayback {
                 })
                 .map_err(|e| e.to_string())?
         };
-        device.start(feed.clone())?;
+        if let Err(error) = device.start(feed.clone()) {
+            stop.store(true, Ordering::Relaxed);
+            let _ = thread.join();
+            device.stop();
+            return Err(error);
+        }
         Ok(AudioPlayback { feed, device, stop, thread: Some(thread), feeder: None, rate, span })
     }
 

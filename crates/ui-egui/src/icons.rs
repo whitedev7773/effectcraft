@@ -1,5 +1,8 @@
-//! Vector icons drawn in code on a 16×16 design grid (crisp at any DPI, recolourable). Original
-//! drawings following generic motion-graphics conventions; no third-party or Adobe artwork.
+//! Gravity UI icons (MIT), with original drawings for specialised motion-graphics tools.
+//! All icons are recolourable; the original drawings use a 16×16 design grid.
+
+#[path = "gravity_icons.rs"]
+mod gravity;
 
 use egui::epaint::{PathShape, PathStroke};
 use egui::{Color32, Painter, Pos2, Rect, Stroke, pos2, vec2};
@@ -106,7 +109,6 @@ pub enum Icon {
     Channel,
     Exposure,
     // links
-    Chat,
     Globe,
     Code,
     Sparkle,
@@ -197,6 +199,12 @@ impl Pen16<'_> {
 
 /// Paint `icon` centred in `rect`.
 pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
+    if !rect.is_finite() || !rect.is_positive() || !painter.is_visible() {
+        return;
+    }
+    if gravity::paint(painter, rect, icon, color) {
+        return;
+    }
     let pen = Pen16 { painter, rect, color, width: 1.25 };
     use Icon::*;
     match icon {
@@ -588,12 +596,6 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
         Exposure => {
             pen.circle(8.0, 8.0, 5.5);
             pen.fill(&[(8.0, 2.5), (13.5, 8.0), (8.0, 13.5)]);
-        }
-        Chat => {
-            pen.closed(&[(2.0, 3.0), (14.0, 3.0), (14.0, 11.0), (7.0, 11.0), (4.0, 14.0), (4.5, 11.0), (2.0, 11.0)]);
-            pen.dot(5.3, 7.0, 0.95);
-            pen.dot(8.0, 7.0, 0.95);
-            pen.dot(10.7, 7.0, 0.95);
         }
         Globe => {
             pen.circle(8.0, 8.0, 6.0);

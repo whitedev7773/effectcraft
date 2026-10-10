@@ -85,6 +85,30 @@ fn fx() -> Fx {
     Fx { p, cid, a: ids.0, b: ids.1, title: ids.2, shape: ids.3 }
 }
 
+#[test]
+fn optional_text_and_content_groups_on_footage_do_not_abort_expression() {
+    let f = fx();
+    assert_eq!(f.num("thisLayer.text ? 1 : 0", 0.0), 0.0);
+    assert_eq!(f.num("thisLayer.content ? 1 : 0", 0.0), 0.0);
+    assert_eq!(f.num("thisComp.layer('Title').text ? 1 : 0", 0.0), 1.0);
+    assert_eq!(f.num("thisComp.layer('Shape').content ? 1 : 0", 0.0), 1.0);
+    let position = f.ev(f.a, POS, "if (thisLayer.text || thisLayer.content) { toComp(anchorPoint) } else { anchorPoint }", 0.0).unwrap();
+    assert_eq!(position, Value::Vec3([10.0, 10.0, 0.0]));
+}
+
+#[test]
+fn precomp_source_exposes_duration_and_markers() {
+    let mut f = fx();
+    let source_id = f.p.items.values().find(|item| item.name == "Other").unwrap().id;
+    f.p.comp_mut(source_id).unwrap().markers.push(Marker { time: secs(1.25), comment: "CUT".into(), ..Default::default() });
+    let comp = f.p.comp(f.cid).unwrap().clone();
+    let layer = build::layer(&mut f.p, &comp, "Precomp", LayerSource::Comp { item: source_id }, (64, 32), None);
+    let layer_id = layer.id;
+    f.p.comp_mut(f.cid).unwrap().layers.push(layer);
+    let value = f.ev(layer_id, ROT, "source.duration + source.marker.key(1).time", 0.0).unwrap();
+    assert_eq!(value, Value::Scalar(4.25));
+}
+
 fn secs(s: f64) -> Tick {
     Tick::from_seconds_f64(s)
 }

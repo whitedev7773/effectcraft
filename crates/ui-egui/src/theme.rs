@@ -2,7 +2,7 @@
 //!
 //! The default theme follows the look of After Effects' dark UI (values estimated from public
 //! documentation and product knowledge, tuned by eye; see `plan/aftereffects/README.md` §2). Fonts
-//! are Inter + JetBrains Mono (OFL).
+//! are Wanted Sans + JetBrains Mono (OFL).
 
 use std::sync::Arc;
 
@@ -75,29 +75,6 @@ pub struct Tokens {
     pub gap: f32,
     pub tab_h: f32,
     pub row_h: f32,
-    /// Settings ▸ Appearance ▸ Use Gradients: panel tab strips and buttons get a soft vertical
-    /// gradient (off: flat fills).
-    pub gradients: bool,
-}
-
-/// A vertical gradient fill (`top` → `bottom`) over `rect`.
-pub fn gradient_rect(painter: &egui::Painter, rect: egui::Rect, top: Color32, bottom: Color32) {
-    let mut m = egui::Mesh::default();
-    m.colored_vertex(rect.left_top(), top);
-    m.colored_vertex(rect.right_top(), top);
-    m.colored_vertex(rect.right_bottom(), bottom);
-    m.colored_vertex(rect.left_bottom(), bottom);
-    m.add_triangle(0, 1, 2);
-    m.add_triangle(0, 2, 3);
-    painter.add(egui::Shape::mesh(m));
-}
-
-impl Tokens {
-    /// The gradient top colour for a fill (a little lighter), or the fill itself when gradients
-    /// are off.
-    pub fn grad_top(&self, c: Color32) -> Color32 {
-        if self.gradients { c.lerp_to_gamma(Color32::WHITE, 0.06) } else { c }
-    }
 }
 
 impl Tokens {
@@ -146,7 +123,6 @@ impl Tokens {
             gap: 4.0,
             tab_h: 30.0,
             row_h: 19.0,
-            gradients: true,
         };
         match kind {
             ThemeKind::Dark => dark,
@@ -218,7 +194,6 @@ impl Tokens {
             let [r, g, b] = p.label_rgb(*l);
             t.labels[i] = Color32::from_rgb(r, g, b);
         }
-        t.gradients = p.appearance.use_gradients;
         t
     }
 
@@ -266,23 +241,34 @@ fn default_labels() -> [Color32; 17] {
     })
 }
 
-static INTER_REGULAR: &[u8] = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
-static INTER_MEDIUM: &[u8] = include_bytes!("../../../assets/fonts/Inter-Medium.ttf");
-static INTER_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf");
+static WANTED_REGULAR: &[u8] = include_bytes!("../../../assets/fonts/WantedSans-Regular.ttf");
+static WANTED_MEDIUM: &[u8] = include_bytes!("../../../assets/fonts/WantedSans-Medium.ttf");
+static WANTED_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/WantedSans-SemiBold.ttf");
 static JETBRAINS_MONO: &[u8] = include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf");
 
-/// Install fonts (Inter, Inter Medium/SemiBold, JetBrains Mono) and egui visuals.
-pub fn install(ctx: &egui::Context, t: &Tokens) {
+fn ui_fonts() -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
-    fonts.font_data.insert("inter".into(), Arc::new(FontData::from_static(INTER_REGULAR)));
-    fonts.font_data.insert("inter-medium".into(), Arc::new(FontData::from_static(INTER_MEDIUM)));
-    fonts.font_data.insert("inter-semibold".into(), Arc::new(FontData::from_static(INTER_SEMIBOLD)));
+    fonts.font_data.insert("wanted".into(), Arc::new(FontData::from_static(WANTED_REGULAR)));
+    fonts.font_data.insert("wanted-medium".into(), Arc::new(FontData::from_static(WANTED_MEDIUM)));
+    fonts.font_data.insert("wanted-semibold".into(), Arc::new(FontData::from_static(WANTED_SEMIBOLD)));
     fonts.font_data.insert("jbmono".into(), Arc::new(FontData::from_static(JETBRAINS_MONO)));
-    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "inter".into());
-    fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "jbmono".into());
-    fonts.families.insert(FontFamily::Name("semibold".into()), vec!["inter-semibold".into(), "inter".into()]);
-    fonts.families.insert(FontFamily::Name("medium".into()), vec!["inter-medium".into(), "inter".into()]);
-    // Reuse the text engine's script-aware system fallback (#84), without embedding a CJK font.
+    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "wanted".into());
+    let mono = fonts.families.entry(FontFamily::Monospace).or_default();
+    mono.insert(0, "wanted".into());
+    mono.insert(0, "jbmono".into());
+    let proportional = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
+    for (family, face) in [("semibold", "wanted-semibold"), ("medium", "wanted-medium")] {
+        let mut faces = proportional.clone();
+        faces.insert(0, face.into());
+        fonts.families.insert(FontFamily::Name(family.into()), faces);
+    }
+    fonts
+}
+
+/// Install Wanted Sans (Regular/Medium/SemiBold), JetBrains Mono and egui visuals.
+pub fn install(ctx: &egui::Context, t: &Tokens) {
+    let mut fonts = ui_fonts();
+    // Reuse the text engine's Japanese system fallback (#84) beyond Wanted Sans' Korean/Latin coverage.
     #[cfg(not(target_arch = "wasm32"))]
     {
         use effectcraft_text::fonts;
@@ -341,9 +327,9 @@ pub fn apply_visuals(ctx: &egui::Context, t: &Tokens) {
     v.widgets.open.weak_bg_fill = t.hover;
     ctx.set_visuals(v);
     ctx.global_style_mut(|s| {
-        s.spacing.item_spacing = egui::vec2(6.0, 4.0);
-        s.spacing.button_padding = egui::vec2(8.0, 3.0);
-        s.spacing.interact_size.y = 22.0;
+        s.spacing.item_spacing = egui::vec2(8.0, 6.0);
+        s.spacing.button_padding = egui::vec2(10.0, 4.0);
+        s.spacing.interact_size.y = 26.0;
         s.spacing.menu_margin = egui::Margin::same(5);
         // Scroll bars always show (egui's float in only over the list), so long menus and lists
         // can be dragged without a mouse wheel or touchpad (#269).
@@ -355,6 +341,41 @@ pub fn apply_visuals(ctx: &egui::Context, t: &Tokens) {
         s.text_styles.insert(TextStyle::Monospace, FontId::new(12.0, FontFamily::Monospace));
         s.animation_time = 0.1;
     });
+}
+
+#[cfg(test)]
+mod wanted_font_tests {
+    #[test]
+    fn wanted_sans_is_default_and_renders_latin_and_korean_in_all_weights() {
+        use egui::{Color32, FontFamily, FontId};
+
+        let definitions = super::ui_fonts();
+        for (family, expected) in [
+            (FontFamily::Proportional, "wanted"),
+            (FontFamily::Name("medium".into()), "wanted-medium"),
+            (FontFamily::Name("semibold".into()), "wanted-semibold"),
+            (FontFamily::Monospace, "jbmono"),
+        ] {
+            assert_eq!(definitions.families[&family][0], expected);
+        }
+        let ctx = egui::Context::default();
+        ctx.set_fonts(definitions);
+        let mut out = ctx.run_ui(egui::RawInput::default(), |_| {});
+        out.textures_delta.clear();
+        ctx.fonts_mut(|fonts| {
+            for family in [FontFamily::Proportional, FontFamily::Name("medium".into()), FontFamily::Name("semibold".into()), FontFamily::Monospace] {
+                let font = FontId::new(13.0, family);
+                let missing = fonts.layout_no_wrap("\u{10ffff}".into(), font.clone(), Color32::WHITE);
+                let missing_uv = missing.rows[0].glyphs[0].uv_rect;
+                for ch in "Wanted Sans 프로그램설정글꼴레이어".chars().filter(|ch| !ch.is_whitespace()) {
+                    let rendered = fonts.layout_no_wrap(ch.to_string(), font.clone(), Color32::WHITE);
+                    let uv = rendered.rows[0].glyphs[0].uv_rect;
+                    assert!(uv.size.x > 0.0 && uv.size.y > 0.0, "empty {ch} in {font:?}");
+                    assert_ne!((uv.min, uv.max), (missing_uv.min, missing_uv.max), "replacement glyph for {ch} in {font:?}");
+                }
+            }
+        });
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

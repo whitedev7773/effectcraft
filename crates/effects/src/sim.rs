@@ -542,27 +542,45 @@ pub struct Bubble {
 /// CC Bubbles' bubbles this frame (closed-form in time) for buffer geometry `b`.
 pub fn bubble_list(ctx: &EffectCtx, b: &Buf) -> Vec<Bubble> {
     let pr = ctx.params;
+    // Live observations: Size is in pixels, independent of the source dimensions. Amount
+    // includes bubbles outside the frame. The old layer-relative, entirely visible cloud
+    // made Size=1 look like large marbles instead of the source project's small dots.
+    if !ctx.time.is_finite()
+        || ctx.layer_size.iter().any(|v| !(1.0..=1_000_000.0).contains(v))
+        || !b.scale.is_finite()
+        || b.scale <= 0.0
+        || b.scale > 1_000_000.0
+        || ["bubbleAmount", "bubbleSpeed", "wobbleAmplitude", "wobbleFrequency", "bubbleSize"].iter().any(|id| !pr.f(id).is_finite())
+    {
+        return vec![];
+    }
     let n = pr.f("bubbleAmount").clamp(0.0, 10_000.0) as u32;
-    let speed = pr.f("bubbleSpeed") as f32;
-    let wamp = pr.f("wobbleAmplitude") as f32;
-    let wfreq = pr.f("wobbleFrequency") as f32;
-    let bsize = pr.f("bubbleSize").max(0.0) as f32;
-    let seed = ctx.seed.wrapping_mul(0x27d4);
-    let (lw, lh) = (ctx.layer_size[0] as f32, ctx.layer_size[1] as f32);
-    let s = b.scale as f32;
-    let t = ctx.time as f32;
-    let base = lw.min(lh) * 0.035 * bsize;
+    let speed = pr.f("bubbleSpeed").clamp(-10_000.0, 10_000.0);
+    let wamp = pr.f("wobbleAmplitude").clamp(0.0, 1_000_000.0);
+    let wfreq = pr.f("wobbleFrequency").clamp(0.0, 10_000.0);
+    let bsize = pr.f("bubbleSize").clamp(0.0, 4096.0);
+    if bsize == 0.0 {
+        return vec![];
+    }
+    // This effect has no Random Seed control. Duplicating it must preserve its cloud.
+    // The distribution is original, calibrated to observed size/density, not AE's RNG.
+    let seed = 0x27d4;
+    let [lw, lh] = ctx.layer_size;
+    let span = 2.1;
+    let phase = if wfreq > 0.0 { ctx.time.rem_euclid(1.0 / wfreq) * wfreq * std::f64::consts::TAU } else { 0.0 };
     (0..n)
         .map(|i| {
-            let r = base * (0.5 + h(i, 1, seed));
-            let travel = lh + 2.0 * r;
-            let v = speed * lh * 0.3 * (0.6 + 0.8 * h(i, 2, seed));
-            let y = lh + r - (h(i, 3, seed) * travel + v * t).rem_euclid(travel);
-            let x0 = h(i, 4, seed) * lw;
-            let x = x0 + wamp * (r / base.max(1e-3)) * (t * wfreq * std::f32::consts::TAU + h(i, 5, seed) * std::f32::consts::TAU).sin();
-            let (bx, by) = b.to_px([x as f64, y as f64]);
-            let (sx, sy) = b.to_px([x0 as f64, y as f64]);
-            Bubble { x: bx as f32, y: by as f32, r: r * s, sx: sx as f32, sy: sy as f32 }
+            let depth_size = 2.0 + 12.0 * h(i, 1, seed) as f64;
+            let r = bsize * depth_size;
+            let travel = span * lh;
+            let v = speed * depth_size * 15.0;
+            let motion = if v != 0.0 { v * ctx.time.rem_euclid(travel / v.abs()) } else { 0.0 };
+            let y = (1.0 + span) * 0.5 * lh - (h(i, 3, seed) as f64 * travel + motion).rem_euclid(travel);
+            let x0 = (span * h(i, 4, seed) as f64 - (span - 1.0) * 0.5) * lw;
+            let x = x0 + wamp * (depth_size / 8.0) * (phase + h(i, 5, seed) as f64 * std::f64::consts::TAU).sin();
+            let (bx, by) = b.to_px([x, y]);
+            let (sx, sy) = b.to_px([x0, y]);
+            Bubble { x: bx as f32, y: by as f32, r: (r * b.scale) as f32, sx: sx as f32, sy: sy as f32 }
         })
         .collect()
 }
@@ -578,36 +596,35 @@ fn bubbles(ctx: &EffectCtx, mut b: Buf) -> Buf {
         &mut out,
         &list,
         |q| Some([q.x - q.r - 1.0, q.y - q.r - 1.0, q.x + q.r + 1.0, q.y + q.r + 1.0]),
-        |q, x, y| {
-            let (dx, dy) = ((x - q.x) / q.r.max(0.5), (y - q.y) / q.r.max(0.5));
-            let d2 = dx * dx + dy * dy;
-            let d = d2.sqrt();
-            let cov = aa((1.0 - d) * q.r);
-            if cov <= 0.0 {
-                return None;
-            }
-            // Liquid refracts (inverted, magnified), metal reflects (wide-angle mirror).
-            let k = if metal { 1.6 } else { -0.7 };
-            let nz = (1.0 - d2).max(0.0).sqrt();
-            let p = src.sample_bilinear((q.sx + dx * q.r * k) as f64, (q.sy + dy * q.r * k) as f64);
-            let (c, sa) = unpremul(p);
-            let mut c = if sa <= 0.0 { [0.6, 0.7, 0.8] } else { c };
-            let mut a = cov;
-            match shading {
-                1 => c = c.map(|v| v * 0.7 + 0.3 * (1.0 - nz)),
-                2 => c = c.map(|v| v * (0.5 + 0.5 * nz)),
-                3 => a *= nz.powf(0.5),
-                4 => a *= 1.0 - nz * 0.8,
-                _ => {}
-            }
-            let hl = (1.0 - ((dx + 0.35).powi(2) + (dy + 0.35).powi(2)) / 0.05).max(0.0) * 0.8;
-            let c = c.map(|v| v + hl);
-            Some([c[0] * a, c[1] * a, c[2] * a, a])
-        },
+        |q, x, y| bubble_shade(q, &src, metal, shading, x, y),
         Acc::Over,
     );
     b.img = out;
     b
+}
+
+fn bubble_shade(q: &Bubble, src: &Image, metal: bool, shading: u32, x: f32, y: f32) -> Option<Px> {
+    let (dx, dy) = ((x - q.x) / q.r.max(0.5), (y - q.y) / q.r.max(0.5));
+    let d2 = dx * dx + dy * dy;
+    let cov = aa((1.0 - d2.sqrt()) * q.r);
+    if cov <= 0.0 {
+        return None;
+    }
+    // Reflection remains an approximation; these radial shading curves were measured on
+    // an original constant-colour source through the host's public scripting API.
+    let k = if metal { 1.6 } else { -0.7 };
+    let p = src.sample_bilinear((q.sx + dx * q.r * k) as f64, (q.sy + dy * q.r * k) as f64);
+    let (mut c, _) = unpremul(p);
+    let mut a = cov;
+    let radial = d2.min(1.0);
+    match shading {
+        1 => c = c.map(|v| v + (1.0 - v) * radial),
+        2 => c = c.map(|v| v * (1.0 - radial)),
+        3 => a *= radial * radial,
+        4 => a *= 1.0 - radial,
+        _ => {}
+    }
+    Some([c[0] * a, c[1] * a, c[2] * a, a])
 }
 
 // ------------------------------------------------------------------ CC Drizzle
@@ -1363,13 +1380,13 @@ pub fn specs() -> Vec<EffectSpec> {
             "ec.sim.ccbubbles",
             "CC Bubbles",
             vec![
-                p("bubbleAmount", "Bubble Amount", num(100.0), slider(0.0, 10_000.0, 0.0, 1000.0, 0)),
-                p("bubbleSpeed", "Bubble Speed", num(0.5), slider(-10.0, 10.0, -2.0, 2.0, 2)),
-                p("wobbleAmplitude", "Wobble Amplitude", num(5.0), slider(0.0, 500.0, 0.0, 100.0, 1)),
+                p("bubbleAmount", "Bubble Amount", num(150.0), slider(0.0, 10_000.0, 0.0, 1000.0, 0)),
+                p("bubbleSpeed", "Bubble Speed", num(1.0), slider(-10.0, 10.0, -2.0, 2.0, 2)),
+                p("wobbleAmplitude", "Wobble Amplitude", num(10.0), slider(0.0, 500.0, 0.0, 100.0, 1)),
                 p("wobbleFrequency", "Wobble Frequency", num(1.0), slider(0.0, 50.0, 0.0, 10.0, 2)),
-                p("bubbleSize", "Bubble Size", num(1.0), slider(0.0, 20.0, 0.0, 5.0, 2)),
+                p("bubbleSize", "Bubble Size", num(4.0), slider(0.0, 20.0, 0.0, 5.0, 2)),
                 p("reflectionType", "Reflection Type", Value::Enum(0), popup(&["Liquid", "Metal"])),
-                p("shadingType", "Shading Type", Value::Enum(0), popup(&["None", "Lighten", "Darken", "Fade Inwards", "Fade Outwards"])),
+                p("shadingType", "Shading Type", Value::Enum(3), popup(&["None", "Lighten", "Darken", "Fade Inwards", "Fade Outwards"])),
             ],
             bubbles,
         ),
@@ -1592,12 +1609,85 @@ mod tests {
         assert!(a.data.iter().any(|p| p[3] > 0.5));
         let none = run("ec.sim.ccbubbles", &[("bubbleAmount", num(0.0))], ramp(40, 40), 0.3);
         assert!(none.data.iter().all(|p| p[3] == 0.0), "bubbles replace the layer");
-        // A single slow bubble moves up over a short time.
-        let one = [("bubbleAmount", num(1.0)), ("bubbleSize", num(4.0)), ("wobbleAmplitude", num(0.0)), ("bubbleSpeed", num(0.2))];
+        // A slow cloud moves up over a short time (some particles start offscreen).
+        let one =
+            [("bubbleAmount", num(20.0)), ("bubbleSize", num(1.0)), ("wobbleAmplitude", num(0.0)), ("bubbleSpeed", num(0.2)), ("shadingType", Value::Enum(0))];
         let blank = Image::new(40, 40);
         let y0 = mass_y(&run("ec.sim.ccbubbles", &one, ramp(40, 40), 0.0), &blank);
         let y1 = mass_y(&run("ec.sim.ccbubbles", &one, ramp(40, 40), 0.1), &blank);
         assert!(y0 >= 0.0 && y1 >= 0.0 && (y1 < y0 || y0 < 8.0), "{y0} -> {y1}");
+    }
+
+    #[test]
+    fn bubbles_match_observed_radial_shading() {
+        let src = grey(160, 160);
+        let q = Bubble { x: 80.0, y: 80.0, r: 40.0, sx: 80.0, sy: 80.0 };
+        // Constant 20% gray observed in the live host: at half-radius, Lighten is 40%,
+        // Darken is 15%, Fade Inwards alpha is 1/16 and Fade Outwards alpha is 3/4.
+        for metal in [false, true] {
+            for (shading, rgb, alpha) in [(0, 0.2, 1.0), (1, 0.4, 1.0), (2, 0.15, 1.0), (3, 0.2, 0.0625), (4, 0.2, 0.75)] {
+                let p = bubble_shade(&q, &src, metal, shading, 100.0, 80.0).unwrap();
+                for v in &p[..3] {
+                    assert!((v - rgb * alpha).abs() < 1e-6, "shading {shading}: {p:?}");
+                }
+                assert!((p[3] - alpha).abs() < 1e-6);
+            }
+            let centre = bubble_shade(&q, &src, metal, 3, 80.0, 80.0).unwrap();
+            assert_eq!(centre, [0.0; 4], "Fade Inwards has a transparent centre");
+            let none = bubble_shade(&q, &src, metal, 0, 66.0, 66.0).unwrap();
+            assert_eq!(none, [0.2, 0.2, 0.2, 1.0], "None does not add a specular spot");
+        }
+    }
+
+    #[test]
+    fn bubbles_use_pixel_sizes_and_include_offscreen_particles() {
+        let spec = crate::find("ec.sim.ccbubbles").unwrap();
+        let mut params = crate::Params { values: spec.params.iter().map(|p| (p.id.to_owned(), p.default.clone())).collect() };
+        params.values.insert("bubbleAmount".into(), num(120.0));
+        params.values.insert("bubbleSize".into(), num(1.0));
+        params.values.insert("wobbleAmplitude".into(), num(0.0));
+        let mut ctx = EffectCtx { params: &params, time: 0.0, layer_size: [1920.0, 960.0], seed: 1, adjustment: false, env: Default::default() };
+        let mut b = Buf { img: Image::new(1, 1), offset: [0.0, 0.0], scale: 1.0 };
+        let full = bubble_list(&ctx, &b);
+        let visible = full.iter().filter(|q| q.x >= 0.0 && q.x < 1920.0 && q.y >= 0.0 && q.y < 960.0).count();
+        assert!((15..45).contains(&visible), "Amount includes a surrounding offscreen cloud: {visible}");
+        assert!(full.iter().all(|q| (2.0..=14.0).contains(&q.r)), "Size=1 gives small dots");
+        let mut larger = params.clone();
+        larger.values.insert("bubbleSize".into(), num(2.0));
+        let larger_ctx = EffectCtx { params: &larger, time: 0.0, layer_size: [1920.0, 960.0], seed: 1, adjustment: false, env: Default::default() };
+        for (a, z) in full.iter().zip(bubble_list(&larger_ctx, &b)) {
+            assert_eq!((a.x, a.y, a.r * 2.0), (z.x, z.y, z.r), "Size changes radius, not position");
+        }
+        ctx.layer_size = [512.0, 256.0];
+        ctx.seed = 9000;
+        let small = bubble_list(&ctx, &b);
+        assert_eq!(full.iter().map(|q| q.r).collect::<Vec<_>>(), small.iter().map(|q| q.r).collect::<Vec<_>>());
+        ctx.layer_size = [1920.0, 960.0];
+        let duplicate = bubble_list(&ctx, &b);
+        assert_eq!(full.iter().map(|q| (q.x, q.y)).collect::<Vec<_>>(), duplicate.iter().map(|q| (q.x, q.y)).collect::<Vec<_>>());
+        b.scale = 0.5;
+        let half = bubble_list(&ctx, &b);
+        for (a, z) in full.iter().zip(half) {
+            assert_eq!((a.x * 0.5, a.y * 0.5, a.r * 0.5), (z.x, z.y, z.r));
+        }
+    }
+
+    #[test]
+    fn bubbles_reject_nonfinite_geometry_and_zero_size() {
+        let spec = crate::find("ec.sim.ccbubbles").unwrap();
+        let mut params = crate::Params { values: spec.params.iter().map(|p| (p.id.to_owned(), p.default.clone())).collect() };
+        let b = Buf { img: Image::new(1, 1), offset: [0.0, 0.0], scale: 1.0 };
+        fn ctx(params: &crate::Params, time: f64, layer_size: [f64; 2]) -> EffectCtx<'_> {
+            EffectCtx { params, time, layer_size, seed: 1, adjustment: false, env: Default::default() }
+        }
+        assert!(bubble_list(&ctx(&params, f64::NAN, [1920.0, 960.0]), &b).is_empty());
+        assert!(bubble_list(&ctx(&params, 0.0, [0.0, 960.0]), &b).is_empty());
+        let huge_time = bubble_list(&ctx(&params, f64::MAX, [1920.0, 960.0]), &b);
+        assert!(huge_time.iter().all(|q| q.x.is_finite() && q.y.is_finite() && q.r.is_finite()));
+        params.values.insert("bubbleSize".into(), num(0.0));
+        assert!(bubble_list(&ctx(&params, 0.0, [1920.0, 960.0]), &b).is_empty());
+        params.values.insert("bubbleSize".into(), num(f64::INFINITY));
+        assert!(bubble_list(&ctx(&params, 0.0, [1920.0, 960.0]), &b).is_empty());
     }
 
     #[test]

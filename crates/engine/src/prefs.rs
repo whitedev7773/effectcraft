@@ -143,7 +143,8 @@ page!(Appearance {
     use_label_color_for_handles: bool = true,
     use_label_color_for_tabs: bool = true,
     cycle_mask_colors: bool = true,
-    use_gradients: bool = true,
+    /// Legacy preference retained for settings-file compatibility; panel backgrounds are flat.
+    use_gradients: bool = false,
     /// macOS: draw the menu bar inside the window instead of the system menu bar.
     in_window_menu_bar_mac: bool = false,
 });
@@ -1013,7 +1014,6 @@ pub fn pages() -> Vec<Page> {
                 s("appearance.useLabelColorForHandles", "Use Label Color for Layer Handles and Paths", B, true),
                 s("appearance.useLabelColorForTabs", "Use Label Color for Related Tabs", B, true),
                 s("appearance.cycleMaskColors", "Cycle Mask Colors", B, true),
-                s("appearance.useGradients", "Use Gradients", B, true),
                 Section("Menu Bar"),
                 s("appearance.inWindowMenuBarMac", "Use In-Window Menu Bar on macOS", B, true),
             ],

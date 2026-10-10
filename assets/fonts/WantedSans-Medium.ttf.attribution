@@ -1,0 +1,8 @@
+asset:        WantedSans-Medium.ttf
+title:        Wanted Sans Medium (UI font)
+author:       The Wanted Sans Project Authors
+source:       https://github.com/wanteddev/wanted-sans/blob/02c9b822349c188ada95f9e2d90c2ed18f853235/packages/wanted-sans/fonts/ttf/WantedSans-Medium.ttf
+license:      OFL-1.1
+license-file: assets/fonts/OFL-WantedSans.txt
+added:        2026-10-09 by EffectCraft contributors
+notes:        Unmodified upstream static TTF; Korean and Latin UI glyphs.

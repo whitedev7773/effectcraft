@@ -65,4 +65,4 @@ In priority order (details and "done" criteria in [docs/gaps.md](docs/gaps.md)):
 | G8 | Plug-in ecosystem on our WebAssembly plug-in API | After Effects plug-ins can't run here |
 | G9 | Localisation, accessibility, user documentation | Reach beyond English-speaking power users |
 
-Come tell us what matters most to you on [Discord](https://discord.gg/artcraft).
+Tell us what matters most to you in [GitHub issues](https://github.com/storytold/effectcraft/issues).

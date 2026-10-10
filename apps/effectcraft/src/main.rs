@@ -7,7 +7,7 @@
 //!
 //! `--control <port>` (or `EFFECTCRAFT_CONTROL_PORT`) starts a localhost JSON-lines control server;
 //! see `effectcraft_ui_egui::control` for the methods.
-#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 // Built everywhere so its tests run on every platform; only Linux AppImages use it.
@@ -86,14 +86,16 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("EffectCraft")
-            .with_inner_size([1680.0, 1020.0])
-            .with_min_inner_size([960.0, 600.0])
+            .with_inner_size(effectcraft_ui_egui::splash::SIZE)
+            .with_decorations(false)
+            .with_resizable(false)
             .with_drag_and_drop(true)
             // Started for an agent (`--control`): open without taking the user's keyboard focus.
             .with_active(control_port.is_none())
             .with_icon(app_icon())
             // Wayland matches the window to `ai.storyteller.effectcraft.desktop` by this ID.
             .with_app_id(appimage::APP_ID),
+        centered: true,
         event_loop_builder: agent_event_loop(control_port.is_some()),
         wgpu_options: wgpu_options(launch.backends),
         ..Default::default()
@@ -126,84 +128,13 @@ fn main() -> eframe::Result {
                     lost.report(&format!("GPU device lost ({reason:?}): {message}"), true);
                 });
             }
-            let mut session = effectcraft_host::session();
-            // Lazy open and non-blocking auto-save: footage is checked and auto-saves are
-            // written on background threads (M13.14).
-            session.check_footage_on_open = true;
-            session.autosave.background = true;
-            // Settings, shortcut presets and the crash-recovery sentinel live in the platform
-            // config directory. Agent-driven runs (`--control`) skip crash recovery.
-            if let Some(dir) = effectcraft_host::config_dir() {
-                // WebAssembly effect plug-ins in <config>/Plug-ins load before the menus are built.
-                let plugins = dir.join("Plug-ins");
-                if plugins.is_dir() {
-                    let _ = session.execute("effect.plugins.load", json!({"folder": plugins.to_string_lossy()}));
-                }
-                session.config = Some(std::sync::Arc::new(effectcraft_engine::config::DirConfig::new(dir)));
-            }
-            session.load_settings();
-            let recovery = if control_port.is_none() { session.begin_recovery() } else { None };
-            let project = files.iter().find(|f| f.ends_with(".ecproj")).cloned();
-            if let Some(p) = project {
-                if let Err(e) = session.execute("file.open", json!({"path": p})) {
-                    eprintln!("effectcraft: {e}");
-                }
-            } else if demo {
-                let _ = session.execute("file.openDemoProject", json!({}));
-            }
-            let media: Vec<String> = files.iter().filter(|f| !f.ends_with(".ecproj")).cloned().collect();
-            if !media.is_empty()
-                && let Err(e) = session.execute("file.import", json!({"paths": media}))
-            {
-                eprintln!("effectcraft: {e}");
-            }
-            let show_home = home.unwrap_or(session.prefs.startup.show_home_on_launch && files.is_empty() && control_port.is_none());
-            let mut app = EffectcraftApp::new(session);
-            app.set_gpu_failure_bridge(gpu_failures);
-            app.ui.start_screen = show_home;
-            if let Some(n) = notice {
-                app.ui.status = n;
-            }
-            if let Some(r) = recovery {
-                app.offer_recovery(r);
-            }
-            app.hooks.pick_files = Some(Box::new(|exts: &[&str]| {
-                rfd::FileDialog::new().add_filter("Media", exts).pick_files().unwrap_or_default().into_iter().map(|p| p.to_string_lossy().to_string()).collect()
-            }));
-            app.hooks.pick_save = Some(Box::new(|name: &str| {
-                rfd::FileDialog::new().add_filter("EffectCraft Project", &["ecproj"]).set_file_name(name).save_file().map(|p| p.to_string_lossy().to_string())
-            }));
-            app.hooks.pick_open_project = Some(Box::new(|| {
-                rfd::FileDialog::new().add_filter("EffectCraft Project", &["ecproj", "ecprojx"]).pick_file().map(|p| p.to_string_lossy().to_string())
-            }));
-            app.hooks.audio_device = Some(Box::new(audio_out::open));
-            app.hooks.audio_devices = Some(Box::new(audio_out::devices));
-            app.hooks.pick_folder = Some(Box::new(|| rfd::FileDialog::new().pick_folder().map(|p| p.to_string_lossy().to_string())));
-            app.hooks.pick_save_file = Some(Box::new(|name: &str, ext: &str| {
-                // A default with a folder that exists opens the dialog there.
-                let path = std::path::Path::new(name);
-                let mut d = rfd::FileDialog::new().add_filter(ext, &[ext]);
-                if let Some(dir) = path.parent().filter(|d| d.is_dir()) {
-                    d = d.set_directory(dir);
-                }
-                let file = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                d.set_file_name(file).save_file().map(|p| p.to_string_lossy().to_string())
-            }));
-            #[cfg(target_os = "macos")]
-            {
-                app.hooks.app_action = Some(Box::new(native_menu::app_action));
-                app.hooks.clipboard_text = Some(Box::new(native_menu::clipboard_text));
-            }
-            if let Some(port) = control_port {
-                disable_app_nap();
-                let rx = control_server::start(port, cc.egui_ctx.clone());
-                app = app.with_control(rx);
-            }
-            log::info!("app created; the window shows after its first frame");
+            effectcraft_ui_egui::theme::install(&cc.egui_ctx, &effectcraft_ui_egui::theme::Tokens::for_kind(Default::default()));
             Ok(Box::new(Desktop {
                 #[cfg(target_os = "macos")]
                 menu: native_menu::NativeBar::new(&cc.egui_ctx),
-                app,
+                app: None,
+                startup: Some(Startup { args: Args { control_port, files, demo, home }, notice, gpu_failures }),
+                splash: effectcraft_ui_egui::splash::Splash::default(),
                 launch,
                 drawn: false,
             }))
@@ -214,6 +145,101 @@ fn main() -> eframe::Result {
         Err(e) => startup_failed(e, !on_gl && cfg!(not(target_os = "macos"))),
     }
     result
+}
+
+/// Deferred until the splash has been presented, so project / plug-in loading has a visible window.
+struct Startup {
+    args: Args,
+    notice: Option<String>,
+    gpu_failures: effectcraft_ui_egui::gpu_failure::GpuFailureBridge,
+}
+
+impl Startup {
+    fn open(self, ctx: &egui::Context) -> EffectcraftApp {
+        let Self { args: Args { control_port, files, demo, home }, notice, gpu_failures } = self;
+        let mut startup_messages: Vec<String> = notice.into_iter().collect();
+        let mut session = effectcraft_host::session();
+        // Lazy open and non-blocking auto-save: footage is checked and auto-saves are
+        // written on background threads (M13.14).
+        session.check_footage_on_open = true;
+        session.autosave.background = true;
+        // Settings, shortcut presets and the crash-recovery sentinel live in the platform
+        // config directory. Agent-driven runs (`--control`) skip crash recovery.
+        if let Some(dir) = effectcraft_host::config_dir() {
+            // WebAssembly effect plug-ins in <config>/Plug-ins load before the menus are built.
+            let plugins = dir.join("Plug-ins");
+            if plugins.is_dir()
+                && let Err(e) = session.execute("effect.plugins.load", json!({"folder": plugins.to_string_lossy()}))
+            {
+                log::error!("effectcraft: {e}");
+                startup_messages.push(e.to_string());
+            }
+            session.config = Some(std::sync::Arc::new(effectcraft_engine::config::DirConfig::new(dir)));
+        }
+        session.load_settings();
+        let recovery = if control_port.is_none() { session.begin_recovery() } else { None };
+        let project = files.iter().find(|f| f.ends_with(".ecproj")).cloned();
+        if let Some(p) = project {
+            if let Err(e) = session.execute("file.open", json!({"path": p})) {
+                log::error!("effectcraft: {e}");
+                startup_messages.push(e.to_string());
+            }
+        } else if demo && let Err(e) = session.execute("file.openDemoProject", json!({})) {
+            log::error!("effectcraft: {e}");
+            startup_messages.push(e.to_string());
+        }
+        let media: Vec<String> = files.iter().filter(|f| !f.ends_with(".ecproj")).cloned().collect();
+        if !media.is_empty()
+            && let Err(e) = session.execute("file.import", json!({"paths": media}))
+        {
+            log::error!("effectcraft: {e}");
+            startup_messages.push(e.to_string());
+        }
+        let show_home = home.unwrap_or(session.prefs.startup.show_home_on_launch && files.is_empty() && control_port.is_none());
+        let mut app = EffectcraftApp::new(session);
+        app.set_gpu_failure_bridge(gpu_failures);
+        app.ui.start_screen = show_home;
+        if !startup_messages.is_empty() {
+            app.ui.status = startup_messages.join("; ");
+        }
+        if let Some(r) = recovery {
+            app.offer_recovery(r);
+        }
+        app.hooks.pick_files = Some(Box::new(|exts: &[&str]| {
+            rfd::FileDialog::new().add_filter("Media", exts).pick_files().unwrap_or_default().into_iter().map(|p| p.to_string_lossy().to_string()).collect()
+        }));
+        app.hooks.pick_save = Some(Box::new(|name: &str| {
+            rfd::FileDialog::new().add_filter("EffectCraft Project", &["ecproj"]).set_file_name(name).save_file().map(|p| p.to_string_lossy().to_string())
+        }));
+        app.hooks.pick_open_project = Some(Box::new(|| {
+            rfd::FileDialog::new().add_filter("EffectCraft Project", &["ecproj", "ecprojx"]).pick_file().map(|p| p.to_string_lossy().to_string())
+        }));
+        app.hooks.audio_device = Some(Box::new(audio_out::open));
+        app.hooks.audio_devices = Some(Box::new(audio_out::devices));
+        app.hooks.pick_folder = Some(Box::new(|| rfd::FileDialog::new().pick_folder().map(|p| p.to_string_lossy().to_string())));
+        app.hooks.pick_save_file = Some(Box::new(|name: &str, ext: &str| {
+            // A default with a folder that exists opens the dialog there.
+            let path = std::path::Path::new(name);
+            let mut d = rfd::FileDialog::new().add_filter(ext, &[ext]);
+            if let Some(dir) = path.parent().filter(|d| d.is_dir()) {
+                d = d.set_directory(dir);
+            }
+            let file = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            d.set_file_name(file).save_file().map(|p| p.to_string_lossy().to_string())
+        }));
+        #[cfg(target_os = "macos")]
+        {
+            app.hooks.app_action = Some(Box::new(native_menu::app_action));
+            app.hooks.clipboard_text = Some(Box::new(native_menu::clipboard_text));
+        }
+        if let Some(port) = control_port {
+            disable_app_nap();
+            let rx = control_server::start(port, ctx.clone());
+            app = app.with_control(rx);
+        }
+        log::info!("editor initialized");
+        app
+    }
 }
 
 /// The window's wgpu device asks for the adapter's own limits (textures up to 16384 px)
@@ -243,7 +269,7 @@ fn device_limits(adapter: eframe::wgpu::Limits) -> eframe::wgpu::Limits {
 }
 
 /// The window couldn't open (no usable graphics adapter or device): say so instead of quitting
-/// silently, since release builds on Windows have no console. `gl_next`: the launch guard has
+/// silently, since Windows builds have no console. `gl_next`: the launch guard has
 /// the next launch try OpenGL.
 fn startup_failed(e: &eframe::Error, gl_next: bool) {
     let next = if gl_next { "The next launch will try OpenGL instead. " } else { "" };
@@ -262,7 +288,9 @@ fn startup_failed(e: &eframe::Error, gl_next: bool) {
 
 /// The desktop app: the egui app plus, on macOS, the system menu bar.
 struct Desktop {
-    app: EffectcraftApp,
+    app: Option<EffectcraftApp>,
+    startup: Option<Startup>,
+    splash: effectcraft_ui_egui::splash::Splash,
     #[cfg(target_os = "macos")]
     menu: native_menu::NativeBar,
     launch: launch_guard::Launch,
@@ -272,26 +300,48 @@ struct Desktop {
 
 impl eframe::App for Desktop {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        #[cfg(target_os = "macos")]
-        self.menu.update(&mut self.app, ctx);
-        self.app.logic(ctx, frame);
+        if self.splash.presented()
+            && let Some(startup) = self.startup.take()
+        {
+            self.app = Some(startup.open(ctx));
+            ctx.request_repaint();
+        }
+        if let Some(app) = &mut self.app {
+            #[cfg(target_os = "macos")]
+            self.menu.update(app, ctx);
+            app.logic(ctx, frame);
+            app.init_gpu(frame);
+            if self.splash.ready() {
+                self.splash.finish(ctx);
+            }
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        self.app.ui(ui, frame);
         if !self.drawn {
             self.drawn = true;
             self.launch.drawn();
-            log::info!("first frame drawn");
+            log::info!("first window frame drawn");
+        }
+        if !self.splash.finished() {
+            self.splash.ui(ui, if self.app.is_some() { "Preparing the editor…" } else { "Loading settings, plug-ins and project…" });
+            return;
+        }
+        if let Some(app) = &mut self.app {
+            app.ui(ui, frame);
         }
     }
 
     fn on_exit(&mut self) {
-        self.app.on_exit();
+        if let Some(app) = &mut self.app {
+            app.on_exit();
+        }
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
-        self.app.raw_input_hook(ctx, raw_input);
+        if let Some(app) = &mut self.app {
+            app.raw_input_hook(ctx, raw_input);
+        }
     }
 }
 

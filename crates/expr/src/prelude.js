@@ -18,7 +18,7 @@ var selectorValue = [100, 100, 100];
 
 // Request ops (must match runtime.rs).
 var __COMP = 0, __COMPNAME = 1, __LAYER = 2, __LINFO = 3, __CHILD = 4, __PINFO = 5, __VALUE = 6, __XFORM = 7, __RECT = 8, __MARKERS = 9, __DOC = 10;
-var __FOOT = 11, __FDATA = 12, __SAMPLE = 13, __PROJ = 14;
+var __FOOT = 11, __FDATA = 12, __SAMPLE = 13, __PROJ = 14, __LSOURCE = 15;
 
 function __begin(t, v, c, l, path, uid, idx, fd, ti, tt, sv) {
   time = t;
@@ -569,6 +569,10 @@ Layer.prototype = {
   get enabled() { return this.__info[11]; },
   get active() { return this.__info[11] && time >= this.inPoint && time < this.outPoint; },
   get containingComp() { return new Comp(this.__c); },
+  get source() {
+    var info = __h(__LSOURCE, this.__c, this.__l);
+    return info === null ? undefined : (info[0] === 'Comp' ? new Comp(info[1]) : new Footage(info[1]));
+  },
   __group: function (k) {
     var g = __child(this.__c, this.__l, '', k);
     if (g === undefined) __err('Layer "' + this.name + '" has no property "' + k + '"');
@@ -580,7 +584,8 @@ Layer.prototype = {
   get rotation() { return this.transform.rotation; },
   get opacity() { return this.transform.opacity; },
   get anchorPoint() { return this.transform.anchorPoint; },
-  get text() { return this.__group('text'); },
+  // These groups exist only on text and shape layers; expressions can test for their presence.
+  get text() { return __child(this.__c, this.__l, '', 'text'); },
   get cameraOption() { return this.__group('cameraOptions'); },
   get lightOption() { return this.__group('lightOptions'); },
   get marker() { return new Markers(this.__c, this.__l); },
@@ -591,7 +596,10 @@ Layer.prototype = {
     return e;
   },
   mask: function (k) { return this.__group('masks').__get(k); },
-  content: function (k) { return this.__group('contents').__get(k); },
+  get content() {
+    var group = __child(this.__c, this.__l, '', 'contents');
+    return group === undefined ? undefined : function (k) { return group.__get(k); };
+  },
   __x: function (t) { return __h(__XFORM, this.__c, this.__l, t === undefined ? time : t); },
   toComp: function (p, t) { return __m3(this.__x(t)[0], __v(p)); },
   fromComp: function (p, t) { return __m3(this.__x(t)[1], __v(p)); },
@@ -1001,7 +1009,7 @@ __global('thisComp', function () { return __S.comp || (__S.comp = new Comp(__S.c
 __global('thisLayer', function () { return __S.layer || (__S.layer = new Layer(__S.c, __S.l)); });
 __global('thisProperty', function () { return __S.prop || (__S.prop = __mkProp(__S.c, __S.l, __S.path)); });
 ['name', 'index', 'inPoint', 'outPoint', 'startTime', 'width', 'height', 'hasParent', 'parent', 'hasVideo', 'enabled', 'active',
-  'transform', 'position', 'scale', 'rotation', 'opacity', 'anchorPoint', 'text', 'marker'].forEach(function (k) {
+  'transform', 'position', 'scale', 'rotation', 'opacity', 'anchorPoint', 'text', 'marker', 'source'].forEach(function (k) {
   __global(k, function () { return thisLayer[k]; });
 });
 ['numKeys', 'velocity', 'speed'].forEach(function (k) {

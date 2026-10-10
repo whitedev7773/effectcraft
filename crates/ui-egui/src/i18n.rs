@@ -689,7 +689,6 @@ const JAPANESE: &[(&str, &str, &str)] = &[
     ("help.systemReport", "System Compatibility Report...", "システム互換性レポート..."),
     ("help.enableLogging", "Enable Logging", "ログ記録を有効化"),
     ("help.revealLogFile", "Reveal Logging File", "ログファイルを表示"),
-    ("help.discord", "Join the ArtCraft Discord...", "ArtCraft Discordに参加..."),
     ("help.reportIssue", "Provide Feedback...", "フィードバックを送信..."),
     ("help.website", "ArtCraft Website", "ArtCraftウェブサイト"),
     ("help.appPage", "EffectCraft Home Page", "EffectCraftホームページ"),

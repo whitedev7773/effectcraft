@@ -345,6 +345,43 @@ fn masks_mattes_and_preserve_transparency() {
 }
 
 #[test]
+fn adjustment_blur_track_mattes_match_cpu() {
+    for depth in [BitDepth::Bpc8, BitDepth::Bpc32] {
+        for kind in [MatteKind::Alpha, MatteKind::AlphaInverted, MatteKind::Luma, MatteKind::LumaInverted] {
+            let mut s = Scene::new(depth);
+            let bg = s.footage(97, 61);
+            s.push(bg);
+            let mut matte = s.solid([0.4, 0.4, 0.4], 60, 40);
+            matte.switches.video = false;
+            set(&mut matte, "transform/opacity", Value::Scalar(60.0));
+            set(&mut matte, "transform/rotation", Value::Scalar(-12.0));
+            matte.props.prop_mut("transform/position").unwrap().keys =
+                vec![Keyframe::new(Tick::ZERO, v3(40.0, 30.0)), Keyframe::new(Tick::from_seconds_f64(1.0), v3(60.0, 30.0))];
+            let mut next = s.p.next_id;
+            let m = build::mask(&mut Ids(&mut next), "Inset", ShapePath::ellipse([30.0, 20.0], 50.0, 34.0), MaskMode::Add, [255, 255, 0]);
+            s.p.next_id = next;
+            matte.props.sub_mut("masks").unwrap().children.push(m.into());
+            let mid = s.push(matte);
+            let mut adj = s.solid([1.0, 1.0, 1.0], 97, 61);
+            adj.switches.adjustment = true;
+            adj.track_matte = Some(TrackMatte { layer: mid, kind });
+            set(&mut adj, "transform/opacity", Value::Scalar(50.0));
+            s.effect(&mut adj, "ec.blur.gaussian", &[("blurriness", Value::Scalar(8.0))]);
+            s.push(adj);
+            for time in [0.0, 0.5, 1.0] {
+                for scale in [1.0, 0.5] {
+                    check(
+                        &format!("adjustment matte {kind:?} {depth:?} {time} {scale}"),
+                        compare_at(&s, RenderOpts { scale, ..opts() }, Tick::from_seconds_f64(time)),
+                        0.0,
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn motion_blur_accumulates_like_the_cpu() {
     for depth in [BitDepth::Bpc8, BitDepth::Bpc32] {
         let mut s = Scene::new(depth);

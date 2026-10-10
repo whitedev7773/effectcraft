@@ -154,7 +154,7 @@ fn mtv(m: &[[f64; 3]; 3], v: V3) -> V3 {
 
 // ---------------------------------------------------------------- projections (VR Converter)
 
-/// VR Converter's projections / layouts. Cube-map Facebook 3:2 and Cube-map EAC 3:2 put
+/// VR Converter's projections / layouts. Cube-map 3:2 and Cube-map EAC 3:2 put
 /// left, front, right over bottom, back, top (EAC with equi-angular faces); Fisheye
 /// (FullDome) is an angular fisheye looking up at the zenith with the front at the bottom.
 pub const PROJECTIONS: [&str; 9] = [
@@ -164,7 +164,7 @@ pub const PROJECTIONS: [&str; 9] = [
     "Cube-map GearVR 6:1",
     "Sphere-map",
     "2D Source",
-    "Cube-map Facebook 3:2",
+    "Cube-map 3:2",
     "Cube-map EAC 3:2",
     "Fisheye (FullDome)",
 ];
@@ -186,7 +186,7 @@ fn cube_grid(kind: u32) -> ((u32, u32), [(u32, u32); 6]) {
         1 => ((4, 3), [(2, 1), (0, 1), (1, 0), (1, 2), (1, 1), (3, 1)]),
         // 3 × 2: right, left, top / bottom, front, back.
         2 => ((3, 2), [(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)]),
-        // 3 × 2: left, front, right / bottom, back, top (Facebook, EAC).
+        // 3 × 2: left, front, right / bottom, back, top (linear or equi-angular).
         6 | 7 => ((3, 2), [(2, 0), (0, 0), (2, 1), (0, 1), (1, 0), (1, 1)]),
         // 6 × 1 strip in face order.
         _ => ((6, 1), [(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0)]),

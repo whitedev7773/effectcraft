@@ -31,6 +31,42 @@ fn levels_and_gamma() {
     effect_case("ec.color.levelsic", &[("alpha/alphaOutBlack", n(0.3))]);
     effect_case("ec.color.levels", &[("redInBlack", n(0.1)), ("greenGamma", n(1.5)), ("blueOutWhite", n(0.7)), ("inWhite", n(0.9))]);
     effect_case("ec.color.levels", &[("alphaInWhite", n(0.6)), ("redInWhite", n(0.5)), ("redClipToOutputWhite", e(0))]);
+    effect_case(
+        "ec.color.levels",
+        &[
+            ("inBlack", n(0.1)),
+            ("inWhite", n(0.9)),
+            ("gamma", n(2.0)),
+            ("outBlack", n(0.1)),
+            ("outWhite", n(0.8)),
+            ("redOutWhite", n(0.5)),
+            ("blueGamma", n(0.5)),
+        ],
+    );
+    effect_case(
+        "ec.color.levelsic",
+        &[
+            ("rgb/rgbInBlack", n(0.1)),
+            ("rgb/rgbInWhite", n(0.9)),
+            ("rgb/rgbGamma", n(2.0)),
+            ("rgb/rgbOutBlack", n(0.1)),
+            ("rgb/rgbOutWhite", n(0.8)),
+            ("red/redOutWhite", n(0.5)),
+            ("blue/blueGamma", n(0.5)),
+        ],
+    );
+    effect_case(
+        "ec.color.levels",
+        &[
+            ("inBlack", n(-1.01)),
+            ("inWhite", n(8.19)),
+            ("gamma", n(5.0)),
+            ("outBlack", n(251.0 / 255.0)),
+            ("outWhite", n(16.23)),
+            ("alphaInWhite", n(0.88)),
+            ("alphaOutWhite", n(5000.0 / 255.0)),
+        ],
+    );
     effect_case("ec.color.gammapedestalgain", &[("redGamma", n(1.4)), ("greenPedestal", n(0.1)), ("blueGain", n(0.8))]);
     effect_case("ec.color.gammapedestalgain", &[("blackStretch", n(2.0)), ("redGain", n(1.2))]);
 }

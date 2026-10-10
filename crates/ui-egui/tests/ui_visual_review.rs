@@ -1,9 +1,20 @@
 //! Opt-in visual review of every built-in panel, workspaces and common dialogs.
 //! Original fixture; captures are review outputs, not shipped assets.
-use effectcraft_engine::Session;
+use effectcraft_engine::project::render_queue::OutputFormat;
+use effectcraft_engine::{ExportJob, ExportResult, Exporter, Session};
 use effectcraft_ui_egui::{Dialog, EffectcraftApp, dock::PanelKind};
 use egui_kittest::Harness;
 use serde_json::json;
+
+struct ReviewExporter;
+impl Exporter for ReviewExporter {
+    fn formats(&self) -> Vec<OutputFormat> {
+        OutputFormat::ALL.to_vec()
+    }
+    fn export(&self, _: &ExportJob, _: &mut dyn FnMut(u64, u64) -> bool) -> Result<ExportResult, String> {
+        Err("Visual review fixture does not export files".into())
+    }
+}
 
 #[test]
 #[ignore]
@@ -16,6 +27,8 @@ fn all_ui_review_captures() {
         s.execute("layer.newText", json!({"text":"EffectCraft","name":"Title"})).unwrap();
         s.execute("layer.newSolid", json!({"name":"Plate","color":"#406080","width":160,"height":120})).unwrap();
         s.execute("renderQueue.add", json!({"format":"png","output":"review-[#####].png"})).unwrap();
+        s.exporter = Some(std::sync::Arc::new(ReviewExporter));
+        s.execute("layer.select", json!({"layers":["#2"]})).unwrap();
         std::sync::Arc::make_mut(&mut s.project).settings.gpu_acceleration = false;
         let mut h = Harness::builder().with_size(size).build_eframe(|_| EffectcraftApp::new(s));
         h.run_steps(4);

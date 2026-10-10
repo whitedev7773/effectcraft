@@ -50,3 +50,20 @@ fn mask_motion_blur_follows_the_render_and_the_comp() {
     let (p, cid) = project(false);
     assert!(alpha_at_25(&p, cid, true) < 0.01, "the comp's switch off");
 }
+
+#[test]
+fn cached_mask_shutter_samples_match_fresh_frames() {
+    let (p, cid) = project(true);
+    let cache = crate::LayerCache::default();
+    for scale in [1.0, 0.5, 1.0] {
+        for f in [0.5, 0.25, 0.75, 0.5] {
+            let t = Tick::from_seconds_f64(f / 30.0);
+            let opts = RenderOpts { scale, motion_blur: true, ..Default::default() };
+            let fresh = Renderer::new(&p, &NoFootage, opts).comp_frame(cid, t);
+            let mut renderer = Renderer::new(&p, &NoFootage, opts);
+            renderer.cache = Some(&cache);
+            let cached = renderer.comp_frame(cid, t);
+            assert_eq!(cached.data, fresh.data);
+        }
+    }
+}

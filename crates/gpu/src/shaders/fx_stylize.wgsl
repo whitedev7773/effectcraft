@@ -632,14 +632,14 @@ fn fxs_repetile(@builtin(global_invocation_id) gid: vec3<u32>) {
     var flip_y = false;
     switch P.u[0].y {
         case 1u: {
-            flip_x = fxs_rem2(ix) == 1;
-            flip_y = fxs_rem2(iy) == 1;
-        }
-        case 2u: {
             flip_x = odd;
         }
-        case 3u: {
+        case 2u: {
             flip_y = odd;
+        }
+        case 3u: {
+            flip_x = fxs_rem2(ix) == 1;
+            flip_y = fxs_rem2(iy) == 1;
         }
         case 4u: {
             flip_x = odd;

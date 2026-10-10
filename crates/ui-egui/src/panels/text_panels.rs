@@ -89,11 +89,11 @@ pub fn character(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let scroll = widgets::PanelScroll::begin(ui, egui::Id::new("character-scroll"), rect);
     let top = rect.min.y + 10.0 - scroll.offset;
     let mut y = top;
-    let x0 = rect.min.x + 10.0;
-    let w = rect.width() - 20.0;
+    let x0 = rect.min.x + 12.0;
+    let w = (rect.width() - 24.0).clamp(0.0, 520.0);
     let mut actions: Vec<serde_json::Value> = vec![];
     // Font family + style.
-    let fr = Rect::from_min_size(pos2(x0, y), vec2(w, 22.0));
+    let fr = Rect::from_min_size(pos2(x0, y), vec2(w, 26.0));
     let pop = egui::Id::new("char-font-pop");
     if widgets::dropdown(ui, fr, &doc.font, &t, egui::Id::new("char-font")).clicked() && enabled {
         widgets::open_popup(ui, pop);
@@ -102,8 +102,8 @@ pub fn character(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     if let Some(f) = font_popup(app, ui, pop, fr.left_bottom(), &doc.font) {
         actions.push(json!({"font": f}));
     }
-    y += 28.0;
-    let sr = Rect::from_min_size(pos2(x0, y), vec2(w - 84.0, 22.0));
+    y += 34.0;
+    let sr = Rect::from_min_size(pos2(x0, y), vec2((w - 106.0).max(0.0), 26.0));
     let spop = egui::Id::new("char-style-pop");
     if widgets::dropdown(ui, sr, &doc.style, &t, egui::Id::new("char-style")).clicked() && enabled {
         widgets::open_popup(ui, spop);
@@ -114,19 +114,19 @@ pub fn character(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     if let Some(st) = widgets::popup_menu(ui, spop, sr.left_bottom(), &styles, styles.iter().position(|s| *s == doc.style)).and_then(|i| styles.get(i)) {
         actions.push(json!({"style": st}));
     }
-    y += 34.0;
+    y += 38.0;
     // Numeric fields in AE's two-column grid (Kerning is a popup, at row 1 right).
     let fields: [(&str, &str, f64, (f64, f64), &str); 10] = [
-        ("size", "T", doc.size, (1.0, 2000.0), " px"),
-        ("leading", "A", doc.leading.unwrap_or(doc.size * 1.2), (0.0, 5000.0), " px"),
+        ("size", "Font size", doc.size, (1.0, 2000.0), " px"),
+        ("leading", "Line spacing", doc.leading.unwrap_or(doc.size * 1.2), (0.0, 5000.0), " px"),
         ("", "", 0.0, (0.0, 0.0), ""),
-        ("tracking", "VA", doc.tracking, (-1000.0, 10000.0), ""),
-        ("strokeWidth", "W", doc.stroke_width, (0.0, 500.0), " px"),
+        ("tracking", "Tracking", doc.tracking, (-1000.0, 10000.0), ""),
+        ("strokeWidth", "Stroke width", doc.stroke_width, (0.0, 500.0), " px"),
         ("", "", 0.0, (0.0, 0.0), ""),
-        ("vScale", "↕T", doc.v_scale, (1.0, 1000.0), " %"),
-        ("hScale", "↔T", doc.h_scale, (1.0, 1000.0), " %"),
-        ("baselineShift", "A↑", doc.baseline_shift, (-1000.0, 1000.0), " px"),
-        ("tsume", "Ts", doc.tsume, (0.0, 100.0), " %"),
+        ("vScale", "Vertical scale", doc.v_scale, (1.0, 1000.0), " %"),
+        ("hScale", "Horizontal scale", doc.h_scale, (1.0, 1000.0), " %"),
+        ("baselineShift", "Baseline shift", doc.baseline_shift, (-1000.0, 1000.0), " px"),
+        ("tsume", "Compression", doc.tsume, (0.0, 100.0), " %"),
     ];
     for (i, (key, glyph, v, range, suffix)) in fields.into_iter().enumerate() {
         if key.is_empty() {
@@ -135,9 +135,9 @@ pub fn character(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
         let col = i % 2;
         let row = i / 2;
         let fx = x0 + col as f32 * (w / 2.0);
-        let fy = y + row as f32 * 28.0;
-        p.text(pos2(fx, fy + 9.0), Align2::LEFT_CENTER, glyph, Tokens::semibold(11.0), t.text_dim);
-        let (r, nv, _) = widgets::hot_number_at(ui, pos2(fx + 26.0, fy), egui::Id::new(("char", key)), v, 0.5, range, 0, suffix, &t);
+        let fy = y + row as f32 * 48.0;
+        widgets::text_fit(&p, pos2(fx, fy), Align2::LEFT_TOP, glyph, Tokens::ui(11.0), (w / 2.0 - 12.0).max(0.0), t.text_dim);
+        let (r, nv, _) = widgets::hot_number_at(ui, pos2(fx, fy + 19.0), egui::Id::new(("char", key)), v, 0.5, range, 0, suffix, &t);
         app.auto.add(&format!("character.{key}"), r, key);
         if let Some(nv) = nv
             && enabled
@@ -147,14 +147,14 @@ pub fn character(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     }
     // Kerning: Metrics / Optical / a manual value (row 1, left).
     {
-        let fy = y + 28.0;
-        p.text(pos2(x0, fy + 9.0), Align2::LEFT_CENTER, "V/A", Tokens::semibold(11.0), t.text_dim);
+        let fy = y + 48.0;
+        p.text(pos2(x0, fy), Align2::LEFT_TOP, "Kerning", Tokens::ui(11.0), t.text_dim);
         let label = match doc.kerning {
             Kerning::Metrics => "Metrics".to_string(),
             Kerning::Optical => "Optical".to_string(),
             Kerning::Manual(v) => format!("{v:.0}"),
         };
-        let kr = Rect::from_min_size(pos2(x0 + 26.0, fy), vec2((w / 2.0 - 32.0).max(50.0), 20.0));
+        let kr = Rect::from_min_size(pos2(x0, fy + 17.0), vec2((w / 2.0 - 12.0).max(0.0), 26.0));
         let kpop = egui::Id::new("char-kerning-pop");
         if widgets::dropdown(ui, kr, &label, &t, egui::Id::new("char-kerning")).clicked() && enabled {
             widgets::open_popup(ui, kpop);
@@ -173,8 +173,9 @@ pub fn character(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     // Stroke Over Fill / Fill Over Stroke (row 2, right).
     {
         let fx = x0 + w / 2.0;
-        let fy = y + 2.0 * 28.0;
-        let dr = Rect::from_min_size(pos2(fx, fy), vec2(w / 2.0, 20.0));
+        let fy = y + 2.0 * 48.0;
+        p.text(pos2(fx, fy), Align2::LEFT_TOP, "Paint order", Tokens::ui(11.0), t.text_dim);
+        let dr = Rect::from_min_size(pos2(fx, fy + 17.0), vec2(w / 2.0, 26.0));
         let labels = vec!["Fill Over Stroke".to_string(), "Stroke Over Fill".to_string()];
         let pop = egui::Id::new("char-stroke-order-pop");
         if widgets::dropdown(ui, dr, &labels[doc.stroke_over_fill as usize], &t, egui::Id::new("char-stroke-order")).clicked() && enabled {
@@ -185,7 +186,7 @@ pub fn character(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
             actions.push(json!({"strokeOverFill": i == 1}));
         }
     }
-    y += 5.0 * 28.0 + 8.0;
+    y += 5.0 * 48.0 + 8.0;
     // Fill / stroke swatches with their enable boxes.
     for (i, (key, label, on, c)) in [("fill", "Fill", doc.apply_fill, doc.fill), ("stroke", "Stroke", doc.apply_stroke, doc.stroke)].into_iter().enumerate() {
         let fx = x0 + i as f32 * (w / 2.0);
@@ -234,7 +235,7 @@ pub fn character(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     app.auto.add("character.ligatures", lr, "Ligatures");
     p.text(pos2(x0 + 20.0, y + 7.0), Align2::LEFT_CENTER, "Ligatures", Tokens::ui(11.5), t.text_dim);
     // OpenType: a popup with the font's layout features (like the Character panel's OpenType menu).
-    let or = Rect::from_min_size(pos2(sr.max.x + 6.0, sr.min.y), vec2(78.0, 22.0));
+    let or = Rect::from_min_size(pos2(sr.max.x + 8.0, sr.min.y), vec2(98.0, 26.0));
     let opop = egui::Id::new("char-opentype-pop");
     let n_on = doc.opentype.feature_settings().len();
     let olabel = if n_on > 0 { format!("OT ({n_on})") } else { "OpenType".to_string() };
@@ -444,8 +445,8 @@ pub fn paragraph(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let target = text_target(app);
     let enabled = target.is_some();
     let doc = target.as_ref().map(|t| t.doc.clone()).unwrap_or_default();
-    let x0 = rect.min.x + 10.0;
-    let w = rect.width() - 20.0;
+    let x0 = rect.min.x + 12.0;
+    let w = (rect.width() - 24.0).clamp(0.0, 520.0);
     let scroll = widgets::PanelScroll::begin(ui, egui::Id::new("paragraph-scroll"), rect);
     let top = rect.min.y + 10.0 - scroll.offset;
     let mut y = top;
@@ -475,21 +476,21 @@ pub fn paragraph(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     y += 34.0;
     // Indents and spacing (AE's two-column grid).
     let fields: [(&str, &str, f64); 6] = [
-        ("indentLeft", "→|", doc.indent_left),
-        ("indentRight", "|←", doc.indent_right),
-        ("indentFirst", "→¶", doc.indent_first),
+        ("indentLeft", "Left indent", doc.indent_left),
+        ("indentRight", "Right indent", doc.indent_right),
+        ("indentFirst", "First line indent", doc.indent_first),
         ("", "", 0.0),
-        ("spaceBefore", "↑¶", doc.space_before),
-        ("spaceAfter", "¶↓", doc.space_after),
+        ("spaceBefore", "Space before", doc.space_before),
+        ("spaceAfter", "Space after", doc.space_after),
     ];
     for (i, (key, glyph, v)) in fields.into_iter().enumerate() {
         if key.is_empty() {
             continue;
         }
         let fx = x0 + (i % 2) as f32 * (w / 2.0);
-        let fy = y + (i / 2) as f32 * 28.0;
-        p.text(pos2(fx, fy + 9.0), Align2::LEFT_CENTER, glyph, Tokens::semibold(11.0), t.text_dim);
-        let (r, nv, _) = widgets::hot_number_at(ui, pos2(fx + 26.0, fy), egui::Id::new(("para-f", key)), v, 0.5, (-5000.0, 5000.0), 0, " px", &t);
+        let fy = y + (i / 2) as f32 * 48.0;
+        widgets::text_fit(&p, pos2(fx, fy), Align2::LEFT_TOP, glyph, Tokens::ui(11.0), (w / 2.0 - 12.0).max(0.0), t.text_dim);
+        let (r, nv, _) = widgets::hot_number_at(ui, pos2(fx, fy + 19.0), egui::Id::new(("para-f", key)), v, 0.5, (-5000.0, 5000.0), 0, " px", &t);
         app.auto.add(&format!("paragraph.{key}"), r, key);
         if let Some(nv) = nv
             && enabled
@@ -497,14 +498,14 @@ pub fn paragraph(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
             actions.push(json!({key: nv, "merge": format!("para-{key}")}));
         }
     }
-    y += 3.0 * 28.0 + 6.0;
+    y += 3.0 * 48.0 + 12.0;
     // Direction and composer popups. Settings ▸ Type ▸ Text Engine: the South Asian and Middle
     // Eastern engine offers the paragraph direction and the World-Ready composers (the Latin
     // engine shows the direction only for right-to-left text already set).
     let world_ready = app.session.prefs.type_.text_engine == "southAsian";
     let rtl = doc.direction == Direction::Rtl;
     if world_ready || rtl {
-        let dr = Rect::from_min_size(pos2(x0, y), vec2(w / 2.0 - 4.0, 22.0));
+        let dr = Rect::from_min_size(pos2(x0, y), vec2((w / 2.0 - 12.0).max(0.0), 26.0));
         let dirs = vec!["Left-to-Right Text".to_string(), "Right-to-Left Text".to_string()];
         let dpop = egui::Id::new("para-direction-pop");
         if widgets::dropdown(ui, dr, &dirs[rtl as usize], &t, egui::Id::new("para-direction")).clicked() && enabled {
@@ -515,7 +516,7 @@ pub fn paragraph(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
             actions.push(json!({"direction": if i == 1 { "rtl" } else { "ltr" }}));
         }
     }
-    let cr = Rect::from_min_size(pos2(x0 + w / 2.0, y), vec2(w / 2.0, 22.0));
+    let cr = Rect::from_min_size(pos2(if world_ready || rtl { x0 + w / 2.0 } else { x0 }, y), vec2(if world_ready || rtl { w / 2.0 } else { w }, 26.0));
     let comps = if world_ready {
         vec!["World-Ready Every-line Composer".to_string(), "World-Ready Single-line Composer".to_string()]
     } else {
@@ -530,7 +531,7 @@ pub fn paragraph(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     if let Some(i) = widgets::popup_menu(ui, cpop, cr.left_bottom(), &comps, Some(single as usize)) {
         actions.push(json!({"composer": if i == 1 { "singleLine" } else { "everyLine" }}));
     }
-    y += 30.0;
+    y += 34.0;
     let hr = Rect::from_min_size(pos2(x0, y), vec2(14.0, 14.0));
     if widgets::checkbox(ui, hr, doc.hanging_punctuation, &t, egui::Id::new("para-hanging")).clicked() && enabled {
         actions.push(json!({"hangingPunctuation": !doc.hanging_punctuation}));

@@ -1612,6 +1612,7 @@ dependencies = [
  "effectcraft-path",
  "effectcraft-project",
  "effectcraft-render",
+ "effectcraft-svg",
  "effectcraft-text",
  "effectcraft-time",
  "eframe",

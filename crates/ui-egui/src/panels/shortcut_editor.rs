@@ -411,7 +411,15 @@ pub fn show(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
                 yy += 17.0;
             }
         } else {
-            p.text(info.left_top() + vec2(8.0, 6.0), Align2::LEFT_TOP, "Click a key to see its commands.", Tokens::ui(11.5), t.text_dim);
+            crate::widgets::text_fit(
+                &p,
+                info.left_top() + vec2(8.0, 6.0),
+                Align2::LEFT_TOP,
+                "Click a key to see its commands.",
+                Tokens::ui(11.5),
+                (info.width() - 16.0).max(0.0),
+                t.text_dim,
+            );
         }
         ui.add_space(4.0);
         // ---- search + command list + editor
@@ -433,15 +441,18 @@ pub fn show(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
                 q.split_whitespace().all(|w| hay.contains(w))
             })
             .collect();
-        ui.allocate_ui_with_layout(vec2(ui.available_width(), 270.0), egui::Layout::left_to_right(egui::Align::Min), |ui| {
-            ui.set_height(270.0);
+        let list_h = (ctx.content_rect().height().min(768.0) - 588.0).clamp(80.0, 180.0);
+        let list_width = (ui.available_width() * 0.65).clamp(160.0, 620.0);
+        let editor_width = (ui.available_width() - list_width - 24.0).max(120.0);
+        ui.allocate_ui_with_layout(vec2(ui.available_width(), list_h + 30.0), egui::Layout::left_to_right(egui::Align::Min), |ui| {
+            ui.set_height(list_h + 30.0);
             // Command list.
             ui.vertical(|ui| {
-                ui.set_width(620.0);
+                ui.set_width(list_width);
                 let row_h = 20.0;
-                egui::ScrollArea::vertical().id_salt("sc-rows").max_height(230.0).auto_shrink([false, false]).show_rows(ui, row_h, rows.len(), |ui, range| {
+                egui::ScrollArea::vertical().id_salt("sc-rows").max_height(list_h).auto_shrink([false, false]).show_rows(ui, row_h, rows.len(), |ui, range| {
                     for i in range {
-                        let b = rows[i];
+                        let Some(b) = rows.get(i) else { continue };
                         let keys = table.keys.get(&b.key).cloned().unwrap_or_default();
                         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click());
                         let sel = st.selected.as_deref() == Some(b.key.as_str());
@@ -451,15 +462,35 @@ pub fn show(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
                             ui.painter().rect_filled(r, 0.0, t.row_alt);
                         }
                         let pp = ui.painter();
-                        pp.text(pos2(r.min.x + 6.0, r.center().y), Align2::LEFT_CENTER, &b.label, Tokens::ui(11.5), t.text);
-                        pp.text(pos2(r.min.x + 230.0, r.center().y), Align2::LEFT_CENTER, b.path.join(" > "), Tokens::ui(10.5), t.text_faint);
+                        let name_width = (r.width() * 0.37).min(220.0);
+                        let path_width = r.width() * 0.28;
+                        crate::widgets::text_fit(
+                            pp,
+                            pos2(r.min.x + 6.0, r.center().y),
+                            Align2::LEFT_CENTER,
+                            &b.label,
+                            Tokens::ui(11.5),
+                            (name_width - 12.0).max(0.0),
+                            t.text,
+                        );
+                        crate::widgets::text_fit(
+                            pp,
+                            pos2(r.min.x + name_width + 6.0, r.center().y),
+                            Align2::LEFT_CENTER,
+                            &b.path.join(" > "),
+                            Tokens::ui(10.5),
+                            (path_width - 12.0).max(0.0),
+                            t.text_faint,
+                        );
                         let ks: Vec<String> = keys.iter().map(|k| crate::menus::shortcut_text(k)).collect();
                         let col = if b.scope == APP_SCOPE { APP_COLOR } else { PANEL_COLOR };
-                        pp.text(
+                        crate::widgets::text_fit(
+                            pp,
                             pos2(r.max.x - 8.0, r.center().y),
                             Align2::RIGHT_CENTER,
-                            ks.join(", "),
+                            &ks.join(", "),
                             Tokens::ui(11.5),
+                            (r.width() - name_width - path_width - 16.0).max(0.0),
                             if keys.is_empty() { t.text_faint } else { col },
                         );
                         app.auto.add(&format!("shortcuts.row.{i}"), r, &b.label);
@@ -474,7 +505,7 @@ pub fn show(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
             ui.separator();
             // Selected command editor.
             ui.vertical(|ui| {
-                ui.set_width(310.0);
+                ui.set_width(editor_width);
                 let Some(b) = st.selected.as_ref().and_then(|k| table.find(k)).cloned() else {
                     ui.label(RichText::new("Select a command to change its shortcut.").color(t.text_dim));
                     return;
@@ -500,7 +531,7 @@ pub fn show(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     let hint = if st.recording { "Press keys…" } else { "Click, then press keys" };
-                    let r = ui.add(egui::TextEdit::singleline(&mut st.pending).hint_text(hint).desired_width(170.0));
+                    let r = ui.add(egui::TextEdit::singleline(&mut st.pending).hint_text(hint).desired_width((ui.available_width() - 78.0).clamp(60.0, 170.0)));
                     app.auto.add("shortcuts.record", r.rect, "Shortcut");
                     if r.gained_focus() || (r.clicked() && !st.recording) {
                         st.recording = true;
@@ -550,7 +581,7 @@ pub fn show(app: &mut EffectcraftApp, ctx: &egui::Context, t: &Tokens) {
         });
         ui.add_space(6.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let r = ui.add(egui::Button::new(RichText::new("   OK   ").color(Color32::WHITE)).fill(t.accent));
+            let r = ui.add(egui::Button::new(RichText::new("OK").color(Color32::WHITE)).min_size(vec2(80.0, 28.0)).fill(t.accent));
             app.auto.add("shortcuts.close", r.rect, "OK");
             close |= r.clicked();
         });

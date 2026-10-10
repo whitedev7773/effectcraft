@@ -469,10 +469,32 @@ fn position(msg: &str, file: &str, code: &str) -> (Option<u32>, Option<u32>) {
 
 /// Evaluate `code` in `ctx` and convert the result.
 pub(crate) fn eval_in(ctx: &mut Context, code: &str, file: &str) -> Result<J, ScriptError> {
-    let src = Source::from_bytes(code.as_bytes()).with_path(std::path::Path::new(file));
+    let prepared = strip_target_directives(code);
+    let src = Source::from_bytes(prepared.as_bytes()).with_path(std::path::Path::new(file));
     let script = boa_engine::Script::parse(src, None, ctx).map_err(|e| script_error(&e, ctx, file, code))?;
     let v = script.evaluate(ctx).map_err(|e| script_error(&e, ctx, file, code))?;
     Ok(result_json(&v, ctx))
+}
+
+/// ExtendScript's `#target` selects the host before JavaScript parsing. The script is already
+/// running in EffectCraft's AE-compatible host, so blank the directive while retaining line
+/// positions for syntax errors. Other `#` directives still receive a parser error.
+fn strip_target_directives(code: &str) -> String {
+    let mut prepared = String::with_capacity(code.len());
+    for line in code.split_inclusive('\n') {
+        let content = line.strip_suffix('\n').unwrap_or(line);
+        let trimmed = content.trim_start_matches([' ', '\t', '\u{feff}']);
+        let is_target = trimmed.strip_prefix("#target").is_some_and(|rest| rest.starts_with(' ') || rest.starts_with('\t'));
+        if is_target {
+            prepared.extend(std::iter::repeat_n(' ', content.chars().count()));
+            if line.ends_with('\n') {
+                prepared.push('\n');
+            }
+        } else {
+            prepared.push_str(line);
+        }
+    }
+    prepared
 }
 
 /// The script's completion value as JSON (`__result` in the prelude does the conversion).
@@ -666,6 +688,16 @@ pub(crate) fn run_inline(session: &mut Session, req: &ScriptRequest) -> Outcome 
 #[cfg(test)]
 mod nesting_tests {
     use super::*;
+
+    #[test]
+    fn jsx_target_directive_keeps_source_lines() {
+        let mut s = Session::default();
+        let out = run(&mut s, &ScriptRequest { code: "#target aftereffects\n1 + 2", name: "target.jsx", console: true });
+        assert_eq!(out.result, J::from(3));
+        assert!(out.error.is_none());
+        let out = run(&mut s, &ScriptRequest { code: "#target aftereffects\nmissingName()", name: "target.jsx", console: true });
+        assert_eq!(out.error.and_then(|e| e.line), Some(2));
+    }
 
     #[test]
     fn deep_nesting_is_an_error_not_a_stack_overflow() {

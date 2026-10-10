@@ -49,6 +49,15 @@ export formats, parity summary), `jobs.list` (Progress panel jobs, e.g. the back
 Every engine command is reachable through `engine.execute`, and every interactive widget of every
 panel registers an element id; both are enforced by `crates/ui-egui/tests/ui_agent_audit.rs`.
 
+The Render Queue exposes output files and common settings directly in expandable cards.
+Use `renderQueue.add`, `renderQueue.render`, `renderQueue.stop`, and
+`renderQueue.item.<id>.<control>` (the persistent queue item id, not its position).
+Controls include `browse`, `outputPath`, `outputTo` (filename templates / direct path editing),
+`format`, `timeSpan`, `quality`, `resolution`, `renderSettings`, `outputModule`, `log`,
+`render`, `remove`, and `requeue` (completed, failed or stopped items). Inline paths commit
+on Enter or focus loss; Escape cancels. Unavailable formats and missing output paths disable
+Render and display the reason. Narrow cards use a single column; short panels scroll.
+
 ## UI state
 
 | Method | Params | Result |
@@ -63,6 +72,10 @@ panel registers an element id; both are enforced by `crates/ui-egui/tests/ui_age
 | `app.quit` | `{force?}` | Closes the app. A modified project shows the Save / Don't Save / Cancel prompt first (automation ids `dialog.unsaved.save`, `dialog.unsaved.dontSave`, `dialog.unsaved.cancel`) unless `force: true`. |
 
 ## Input
+
+Normal previews start audio immediately and keep it running when video frames render slowly.
+The viewer displays the latest completed frame while the current-time indicator follows audio.
+Enable **Cache Before Playback** in the Preview panel to wait for video before starting sound.
 
 Points are logical window coordinates. A target is `{id}` (the element's centre; add `fx`/`fy` between
 0 and 1 to pick a spot inside it) or `{x, y}`. `modifiers` is `{shift, alt, command, ctrl}`, where

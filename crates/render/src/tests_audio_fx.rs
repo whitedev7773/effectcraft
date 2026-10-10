@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use effectcraft_effects::EffectHost;
 use effectcraft_keyframe::Value;
 use effectcraft_project::build::{self, Ids};
 use effectcraft_project::{Comp, Footage, FootageKind, ItemId, ItemKind, LayerSource, Project, Solid};
@@ -93,6 +94,24 @@ fn ramp(t: f64) -> (f32, f32) {
 
 fn rms(m: &[f32]) -> f32 {
     (m.iter().map(|v| v * v).sum::<f32>() / m.len() as f32).sqrt()
+}
+
+#[test]
+fn visual_effect_can_read_audio_from_precomp_layer() {
+    let (mut project, nested_id) = comp_with(None, &[], false);
+    let mut outer = Comp::new(64, 64, FrameRate::new(25, 1), Tick::from_seconds_f64(2.0));
+    let layer = build::layer(&mut project, &outer, "nested", LayerSource::Comp { item: nested_id }, (64, 64), None);
+    let layer_id = layer.id;
+    outer.layers.push(layer);
+    let outer_id = project.add_item("outer", effectcraft_color::Label::Sandstone, None, ItemKind::Comp(outer.into()));
+    let source = Signal(ramp);
+    let renderer = crate::Renderer::new(&project, &source, crate::RenderOpts::default());
+    let comp = project.comp(outer_id).unwrap();
+    let ctx = crate::EvalCtx::new(&project, outer_id, comp, Tick::from_seconds_f64(0.5));
+    let host = crate::FxHost { r: &renderer, ctx: &ctx, layer: &comp.layers[0], index: std::sync::atomic::AtomicUsize::new(0) };
+    let samples = host.audio(layer_id.0, 0.5, 100, SR).unwrap();
+    assert_eq!(samples.len(), 200);
+    assert!((samples[0] - 0.5).abs() < 0.01, "{}", samples[0]);
 }
 
 #[test]

@@ -401,9 +401,9 @@ fn repetile(ctx: &EffectCtx, b: Buf) -> Buf {
             let (iy, mut fy) = tile_coord(y as f64 + 0.5 - u, h);
             let odd = (ix + iy).rem_euclid(2) == 1;
             let (flip_x, flip_y) = match mode {
-                1 => (ix.rem_euclid(2) == 1, iy.rem_euclid(2) == 1),
-                2 => (odd, false),
-                3 => (false, odd),
+                1 => (odd, false),
+                2 => (false, odd),
+                3 => (ix.rem_euclid(2) == 1, iy.rem_euclid(2) == 1),
                 4 => (odd, odd),
                 _ => (false, false),
             };
@@ -688,7 +688,7 @@ pub fn specs() -> Vec<EffectSpec> {
                 p("expandLeft", "Expand Left", num(0.0), slider(0.0, 4000.0, 0.0, 500.0, 0)),
                 p("expandDown", "Expand Down", num(0.0), slider(0.0, 4000.0, 0.0, 500.0, 0)),
                 p("expandUp", "Expand Up", num(0.0), slider(0.0, 4000.0, 0.0, 500.0, 0)),
-                p("tiling", "Tiling", Value::Enum(0), popup(&["Repeat", "Unfold", "Checker Flip H", "Checker Flip V", "Checker Flip"])),
+                p("tiling", "Tiling", Value::Enum(0), popup(&["Repeat", "Checker Flip H", "Checker Flip V", "Unfold", "Checker 180°"])),
             ],
             repetile,
         ),
@@ -793,6 +793,26 @@ mod tests {
         let b = img.get(3, 2);
         for c in 0..4 {
             assert!((a[c] - b[c]).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn repetile_unfold_mirrors_each_axis_at_layer_edges() {
+        let img = ramp(4, 3);
+        let out = run_at(
+            "ec.stylize.ccrepetile",
+            &[("expandLeft", num(4.0)), ("expandRight", num(4.0)), ("expandUp", num(3.0)), ("tiling", Value::Enum(3))],
+            img.clone(),
+            0.0,
+        );
+        assert_eq!((out.img.width, out.img.height), (12, 6));
+        assert_eq!(out.offset, [4.0, 3.0]);
+        for (x, y, sx, sy) in [(3, 4, 0, 1), (4, 4, 0, 1), (7, 4, 3, 1), (8, 4, 3, 1), (5, 2, 1, 0), (5, 3, 1, 0)] {
+            let actual = out.img.get(x, y);
+            let expected = img.get(sx, sy);
+            for channel in 0..4 {
+                assert!((actual[channel] - expected[channel]).abs() < 1e-5, "at ({x}, {y}) channel {channel}");
+            }
         }
     }
 

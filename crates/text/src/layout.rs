@@ -931,13 +931,13 @@ fn paragraph(text: &str, base: usize, runs: &[(Range<usize>, TextStyle)], primar
     out
 }
 
-/// Lay out `text` (paragraphs separated by `\n`) in one style.
+/// Lay out `text` (paragraphs separated by `\n`, `\r`, or `\r\n`) in one style.
 pub fn layout_uncached(text: &str, style: &TextStyle, para: &ParagraphStyle) -> Layout {
     layout_rich_uncached(text, &[(0..text.len(), style.clone())], std::slice::from_ref(para))
 }
 
 /// Lay out `text` with character style runs (byte ranges covering the text, in order; at least
-/// one) and paragraph settings (one per `\n`-separated paragraph; the last repeats). The wrap
+/// one) and paragraph settings (one per line-ending-separated paragraph; the last repeats). The wrap
 /// width is the first paragraph's.
 pub fn layout_rich_uncached(text: &str, runs: &[(Range<usize>, TextStyle)], paras: &[ParagraphStyle]) -> Layout {
     let fallback = [(0..text.len(), TextStyle::default())];
@@ -947,12 +947,25 @@ pub fn layout_rich_uncached(text: &str, runs: &[(Range<usize>, TextStyle)], para
     let width = para_at(0).width;
     let primaries: Vec<Resolved> = runs.iter().map(|(_, s)| fonts::resolve(&s.family, &s.style)).collect();
     let mut lay = Layout { missing_font: primaries.iter().any(|p| p.missing), text_len: text.len(), ..Default::default() };
-    let mut base = 0usize;
     let mut plines: Vec<(usize, ParaLine)> = Vec::new();
-    for (pi, p) in text.split('\n').enumerate() {
-        let p_clean = p.strip_suffix('\r').unwrap_or(p);
-        plines.extend(paragraph(p_clean, base, runs, &primaries, para_at(pi), width).into_iter().map(|l| (pi, l)));
-        base += p.len() + 1;
+    let mut paragraphs = Vec::new();
+    let mut base = 0usize;
+    for (index, ch) in text.char_indices() {
+        if index < base || !matches!(ch, '\n' | '\r') {
+            continue;
+        }
+        let Some(content) = text.get(base..index) else { continue };
+        paragraphs.push((base, content));
+        base = index.saturating_add(1);
+        if ch == '\r' && text.as_bytes().get(base) == Some(&b'\n') {
+            base = base.saturating_add(1);
+        }
+    }
+    if let Some(content) = text.get(base..) {
+        paragraphs.push((base, content));
+    }
+    for (pi, (base, content)) in paragraphs.into_iter().enumerate() {
+        plines.extend(paragraph(content, base, runs, &primaries, para_at(pi), width).into_iter().map(|l| (pi, l)));
     }
     let mut baseline = 0.0f32;
     for (i, (pi, pl)) in plines.into_iter().enumerate() {
@@ -1195,6 +1208,18 @@ mod tests {
         let gap = l.lines[1].baseline - l.lines[0].baseline;
         let l2 = layout("one\ntwo", &st(30.0), &ParagraphStyle { leading: 10.0, ..Default::default() });
         assert!((l2.lines[1].baseline - l2.lines[0].baseline - gap - 10.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn extend_script_carriage_returns_make_paragraphs() {
+        let style = st(30.0);
+        let para = ParagraphStyle::default();
+        for (text, second_start) in [("one\rtwo", 4), ("one\r\ntwo", 5), ("one\ntwo", 4)] {
+            let layout = layout(text, &style, &para);
+            assert_eq!(layout.lines.len(), 2, "{text:?}");
+            assert_eq!(layout.lines[1].range, second_start..text.len(), "{text:?}");
+            assert!(layout.lines[1].baseline > layout.lines[0].baseline);
+        }
     }
 
     #[test]

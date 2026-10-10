@@ -251,6 +251,7 @@ fn draw_adjustment(e: &mut Enc, r: &Renderer, ctx: &EvalCtx, layer: &Layer, canv
     let Some(foot) = r.adjustment_footprint(ctx, layer) else { return Some(()) };
     let (w, h) = (canvas.width, canvas.height);
     let matte = place(e, r, ctx, layer, &foot, &e.zeros(w, h), BlendMode::Normal, 1.0, None)?;
+    let matte = apply_track_matte(e, r, ctx, layer, matte, None)?;
     let pipe = r.pipe();
     // Effects run in the working space, not the linear blending space.
     let below = match pipe.from_blend() {
@@ -295,17 +296,27 @@ fn composite_iso_with(
     r: &Renderer,
     ctx: &EvalCtx,
     layer: &Layer,
-    mut iso: GpuImage,
+    iso: GpuImage,
     canvas: &mut GpuImage,
     opacity: f32,
     matte_img: Option<GpuImage>,
     levels: Option<f32>,
 ) -> Option<()> {
+    let mut iso = apply_track_matte(e, r, ctx, layer, iso, matte_img)?;
+    if layer.preserve_transparency {
+        iso = ops::preserve(e, &iso, canvas);
+    }
+    *canvas = ops::blend_full(e, canvas, &iso, layer.blend_mode, opacity, layer.id.0 as u32, levels);
+    Some(())
+}
+
+/// The same comp-space track matte for regular layers and adjustment effect coverage.
+fn apply_track_matte(e: &mut Enc, r: &Renderer, ctx: &EvalCtx, layer: &Layer, mut iso: GpuImage, matte_img: Option<GpuImage>) -> Option<GpuImage> {
     if let Some((m, kind)) = r.track_matte(ctx, layer) {
-        let mimg = match matte_img.filter(|i| (i.width, i.height) == (canvas.width, canvas.height)) {
+        let mimg = match matte_img.filter(|i| (i.width, i.height) == (iso.width, iso.height)) {
             Some(i) => i,
             None => {
-                let mut mimg = e.zeros(canvas.width, canvas.height);
+                let mut mimg = e.zeros(iso.width, iso.height);
                 if m.is_active_at(ctx.time)
                     && let Some(mb) = r.layer_buf(ctx, m)
                 {
@@ -317,11 +328,7 @@ fn composite_iso_with(
         };
         iso = ops::matte(e, &iso, &mimg, kind);
     }
-    if layer.preserve_transparency {
-        iso = ops::preserve(e, &iso, canvas);
-    }
-    *canvas = ops::blend_full(e, canvas, &iso, layer.blend_mode, opacity, layer.id.0 as u32, levels);
-    Some(())
+    Some(iso)
 }
 
 /// Draw a processed layer buffer onto `target` (transform, motion blur sub-samples), quantising

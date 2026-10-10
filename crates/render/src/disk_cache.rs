@@ -732,7 +732,9 @@ fn decode_layer(p: &[u8]) -> Option<Buf> {
 // ---------------------------------------------------------------- content keys
 
 /// Bump when rendering changes in a way that makes old disk entries wrong.
-const RENDER_VERSION: &str = "effectcraft-render-1";
+// Bump when render semantics change, so persisted frames and precomps cannot reuse old pixels.
+// Revision 2 applies track mattes to adjustment-layer coverage on both CPU and GPU.
+const RENDER_VERSION: &str = "effectcraft-render-2";
 
 fn hash_debug(h: &mut Hash128, v: &impl std::fmt::Debug) {
     h.write(format!("{v:?}").as_bytes());

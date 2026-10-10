@@ -10,6 +10,19 @@
 
 <h1 align="center">EffectCraft</h1>
 
+> [!IMPORTANT]
+> **Customized version / 특정 사용 환경에 맞춘 수정 버전**
+>
+> 이 프로젝트는 [storytold/effectcraft](https://github.com/storytold/effectcraft)를 클론한 뒤,
+> 특수한 사용 환경과 요구사항에 맞추어 수정한 비공식 커스터마이즈 버전입니다.
+> UI 폰트·아이콘, 패널 스타일, 렌더 큐의 조작 방식과 편집기 레이아웃을 변경하고 외부 홍보 요소를 제거했습니다.
+>
+> This project was cloned from [storytold/effectcraft](https://github.com/storytold/effectcraft)
+> and modified for a specific usage environment and its requirements. This is an unofficial
+> customized version, with changes to UI fonts and icons, panel styling, render queue controls
+> and editor layout, and removal of promotional UI. Original authorship, copyright
+> notices and applicable licenses are retained.
+
 <p align="center">
   <b>Motion graphics and visual effects; an open-source, clean-room reimplementation of Adobe After Effects, rebuilt in pure Rust.</b>
 </p>
@@ -27,10 +40,6 @@
 </p>
 
 <p align="center">
-  <a href="https://discord.gg/artcraft"><img alt="Join the ArtCraft community on Discord" src="https://img.shields.io/badge/Join%20us%20on%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="40"></a>
-</p>
-
-<p align="center">
   <a href="https://getartcraft.com/apps/effectcraft"><b>EffectCraft on getartcraft.com</b></a> ·
   <a href="https://getartcraft.com/">ArtCraft</a> ·
   <a href="https://getartcraft.com/apps">All Crafting Apps</a>
@@ -44,7 +53,7 @@
 
 > [!NOTE]
 > **ArtCraft is a community of artists from all walks of life.** Digital, generative, music,
-> games &mdash; if you make things, you're one of us. **[Come say hi on Discord](https://discord.gg/artcraft).**
+> games &mdash; if you make things, you're one of us.
 
 <p align="center">
   <a href="#what-effectcraft-is">What it is</a> ·
@@ -303,20 +312,6 @@ And [**ArtCraft**](https://getartcraft.com/) itself, our AI image and video stud
 <br>
 
 <p align="center">
-  <a href="https://discord.gg/artcraft"><img alt="Join the ArtCraft community on Discord" src="https://img.shields.io/badge/Join%20us%20on%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="40"></a>
-</p>
-
-<h3 align="center">Come make things with us</h3>
-
-<p align="center">
-  Our Discord is where artists of every kind hang out: people who paint, shoot, draw, cut film,
-  set type, and people still figuring out what they like to make. Share what you're working on,
-  ask for help, tell us what's broken, or tell us what you wish these tools could do.
-  Whatever your medium and however long you've been at it, you're welcome here.
-</p>
-
-<p align="center">
-  <a href="https://discord.gg/artcraft"><b>discord.gg/artcraft</b></a> ·
   <a href="https://getartcraft.com/">getartcraft.com</a> ·
   <a href="https://getartcraft.com/apps">The Crafting Apps</a> ·
   <a href="https://getartcraft.com/apps/effectcraft">EffectCraft</a>

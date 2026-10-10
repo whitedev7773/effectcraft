@@ -227,8 +227,8 @@ fn level(v: f32, [ib, iw, g, ob, ow]: [f32; 5], (clip_b, clip_w): (bool, bool)) 
 
 const LEVELS_IDENTITY: [f32; 5] = [0.0, 1.0, 1.0, 0.0, 1.0];
 
-/// Levels: the RGB controls map every colour channel, then the Red / Green / Blue controls
-/// their own channel and the Alpha controls alpha. All five sets are kept; the Channel popup
+/// Levels: Red / Green / Blue controls map their own channel, then RGB maps all three.
+/// Alpha controls alpha independently. All five sets are kept; the Channel popup
 /// only picks the set Effect Controls shows.
 fn levels(ctx: &EffectCtx, mut b: Buf) -> Buf {
     let ib = ctx.params.f("inBlack") as f32;
@@ -237,10 +237,10 @@ fn levels(ctx: &EffectCtx, mut b: Buf) -> Buf {
     let ob = ctx.params.f("outBlack") as f32;
     let ow = ctx.params.f("outWhite") as f32;
     let clip = levels_clip(ctx);
-    b.img.map_straight(|c| c.map(|v| level(v, [ib, iw, g, ob, ow], clip)));
     let chans = levels_channel_settings(ctx);
     let ident = |l: &([f32; 5], (bool, bool))| l.0 == LEVELS_IDENTITY;
     if chans.iter().all(ident) {
+        b.img.map_straight(|c| c.map(|v| level(v, [ib, iw, g, ob, ow], clip)));
         return b;
     }
     use rayon::prelude::*;
@@ -250,6 +250,9 @@ fn levels(ctx: &EffectCtx, mut b: Buf) -> Buf {
         for i in 0..3 {
             if !ident(&chans[i]) {
                 o[i] = level(c[i], chans[i].0, chans[i].1);
+            }
+            if a > 0.0 {
+                o[i] = level(o[i], [ib, iw, g, ob, ow], clip);
             }
         }
         let na = if ident(&chans[3]) { a } else { level(a, chans[3].0, chans[3].1).clamp(0.0, 1.0) };
@@ -845,7 +848,9 @@ fn levels_channel_params() -> Vec<crate::ParamSpec> {
         let label = LEVELS_CHANNELS[i + 1];
         let ids = levels_channel_ids(i + 1);
         for k in 0..5 {
-            let ui = if k == 2 { slider(0.1, 10.0, 0.1, 3.0, 2) } else { slider(-1.0, 2.0, 0.0, 1.0, 3) };
+            // Keep the convenient 0..1 slider without rejecting HDR input/output
+            // values (including alpha gain above one) entered numerically.
+            let ui = if k == 2 { slider(0.1, 10.0, 0.1, 3.0, 2) } else { slider(-32768.0, 32768.0, 0.0, 1.0, 3) };
             v.push(p(leak(ids[k].clone()), leak(format!("{label} {}", names[k])), num(LEVELS_IDENTITY[k] as f64), ui));
         }
         v.push(p(leak(format!("{pre}ClipToOutputBlack")), leak(format!("{label} Clip To Output Black")), Value::Enum(2), popup(&LEVELS_CLIP)));
@@ -931,11 +936,11 @@ pub fn specs() -> Vec<EffectSpec> {
             "Levels",
             vec![
                 p("channel", "Channel", Value::Enum(0), popup(&LEVELS_CHANNELS)),
-                p("inBlack", "Input Black", num(0.0), slider(-1.0, 2.0, 0.0, 1.0, 3)),
-                p("inWhite", "Input White", num(1.0), slider(-1.0, 2.0, 0.0, 1.0, 3)),
+                p("inBlack", "Input Black", num(0.0), slider(-32768.0, 32768.0, 0.0, 1.0, 3)),
+                p("inWhite", "Input White", num(1.0), slider(-32768.0, 32768.0, 0.0, 1.0, 3)),
                 p("gamma", "Gamma", num(1.0), slider(0.1, 10.0, 0.1, 3.0, 2)),
-                p("outBlack", "Output Black", num(0.0), slider(-1.0, 2.0, 0.0, 1.0, 3)),
-                p("outWhite", "Output White", num(1.0), slider(-1.0, 2.0, 0.0, 1.0, 3)),
+                p("outBlack", "Output Black", num(0.0), slider(-32768.0, 32768.0, 0.0, 1.0, 3)),
+                p("outWhite", "Output White", num(1.0), slider(-32768.0, 32768.0, 0.0, 1.0, 3)),
                 p("clipToOutputBlack", "Clip To Output Black", Value::Enum(2), popup(&LEVELS_CLIP)),
                 p("clipToOutputWhite", "Clip To Output White", Value::Enum(2), popup(&LEVELS_CLIP)),
                 // Projects saved before the two popups: "Don't Clip".
@@ -1288,14 +1293,54 @@ mod tests {
         let r = px("ec.color.levels", &[("redOutWhite", num(0.5))], g);
         assert!(close(r, [0.25, 0.5, 0.5, 1.0], 1e-5), "{r:?}");
         let b = px("ec.color.levels", &[("blueGamma", num(2.0)), ("inWhite", num(0.5))], [0.25, 0.25, 0.25, 1.0]);
-        assert!(close(b, [0.5, 0.5, 0.5f32.sqrt(), 1.0], 1e-5), "RGB first, then blue: {b:?}");
+        assert!(close(b, [0.5, 0.5, 1.0, 1.0], 1e-5), "blue first, then RGB: {b:?}");
         let a = px("ec.color.levels", &[("alphaOutWhite", num(0.5))], [0.5, 0.5, 0.5, 1.0]);
         assert!(close(a, [0.25, 0.25, 0.25, 0.5], 1e-5), "{a:?}");
         // Per-channel clipping follows its own popups.
         let hot = [0.9, 0.9, 0.9, 1.0];
         let c = px("ec.color.levels", &[("greenInWhite", num(0.5))], hot)[1];
-        let nc = px("ec.color.levels", &[("greenInWhite", num(0.5)), ("greenClipToOutputWhite", Value::Enum(0))], hot)[1];
+        let nc =
+            px("ec.color.levels", &[("greenInWhite", num(0.5)), ("greenClipToOutputWhite", Value::Enum(0)), ("clipToOutputWhite", Value::Enum(0))], hot)[1];
         assert!((c - 1.0).abs() < 1e-6 && (nc - 1.8).abs() < 1e-5, "{c} {nc}");
+    }
+
+    #[test]
+    fn levels_hdr_colour_and_alpha_gain_preserve_straight_colour() {
+        let params = [
+            ("inBlack", num(-1.01)),
+            ("inWhite", num(8.19)),
+            ("gamma", num(5.0)),
+            ("outBlack", num(251.0 / 255.0)),
+            ("outWhite", num(16.23)),
+            ("alphaInWhite", num(0.88)),
+            ("alphaOutWhite", num(5000.0 / 255.0)),
+        ];
+        let a = 0.02_f32;
+        let result = px("ec.color.levels", &params, [0.2 * a, 0.4 * a, 0.6 * a, a]);
+        let expected_alpha = a / 0.88 * (5000.0 / 255.0);
+        assert!((result[3] - expected_alpha).abs() < 1e-6);
+        for (i, c) in [0.2_f32, 0.4, 0.6].into_iter().enumerate() {
+            let rgb = 251.0 / 255.0 + (16.23 - 251.0 / 255.0) * ((c + 1.01) / 9.2).powf(0.2);
+            assert!((result[i] - rgb * expected_alpha).abs() < 1e-5);
+        }
+        assert_eq!(px("ec.color.levels", &params, [0.0; 4]), [0.0; 4]);
+    }
+
+    #[test]
+    fn levels_matches_observed_channel_then_master_order() {
+        let params = [
+            ("inBlack", num(0.1)),
+            ("inWhite", num(0.9)),
+            ("gamma", num(2.0)),
+            ("outBlack", num(0.1)),
+            ("outWhite", num(0.8)),
+            ("redOutWhite", num(0.5)),
+            ("blueGamma", num(0.5)),
+        ];
+        let actual = px("ec.color.levels", &params, [0.2, 0.4, 0.6, 1.0]);
+        // Public scripting observation of an original solid: AE's 8-bpc
+        // output is (26, 135, 127). Allow one code for its integer rounding.
+        assert!(close(actual, [26.0 / 255.0, 135.0 / 255.0, 127.0 / 255.0, 1.0], 1.0 / 255.0), "{actual:?}");
     }
 
     #[test]

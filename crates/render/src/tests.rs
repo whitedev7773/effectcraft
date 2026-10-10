@@ -97,6 +97,69 @@ fn track_matte_alpha() {
 }
 
 #[test]
+fn adjustment_blur_respects_hidden_track_matte() {
+    for kind in [MatteKind::Alpha, MatteKind::AlphaInverted, MatteKind::Luma, MatteKind::LumaInverted] {
+        let (mut p, cid, comp) = setup();
+        let bg = solid(&mut p, &comp, [0.0, 0.0, 0.0], 200, 100);
+        let mut edge = solid(&mut p, &comp, [1.0, 1.0, 1.0], 100, 100);
+        edge.props.prop_mut("transform/position").unwrap().value = Value::Vec3([150.0, 50.0, 0.0]);
+        let mut matte = solid(&mut p, &comp, [0.4, 0.4, 0.4], 80, 60);
+        matte.switches.video = false;
+        matte.props.prop_mut("transform/opacity").unwrap().value = Value::Scalar(60.0);
+        matte.props.prop_mut("transform/position").unwrap().keys =
+            vec![Keyframe::new(Tick::ZERO, Value::Vec3([100.0, 50.0, 0.0])), Keyframe::new(Tick::from_seconds_f64(1.0), Value::Vec3([120.0, 50.0, 0.0]))];
+        let mut next = p.next_id;
+        let mask = build::mask(&mut Ids(&mut next), "Inset", ShapePath::rect([40.0, 30.0], 50.0, 40.0), MaskMode::Add, [255, 255, 0]);
+        p.next_id = next;
+        matte.props.sub_mut("masks").unwrap().children.push(mask.into());
+        let mut adj = solid(&mut p, &comp, [1.0, 1.0, 1.0], 200, 100);
+        adj.switches.adjustment = true;
+        adj.props.prop_mut("transform/opacity").unwrap().value = Value::Scalar(50.0);
+        add_effect_200(&mut p, &mut adj, "ec.blur.gaussian", &[("blurriness", Value::Scalar(12.0))]);
+        adj.track_matte = Some(TrackMatte { layer: matte.id, kind });
+        p.comp_mut(cid).unwrap().layers = vec![adj.clone(), matte.clone(), edge.clone(), bg.clone()];
+        let cache = crate::LayerCache::default();
+        for seconds in [0.0, 0.5, 1.0, 0.0] {
+            let t = Tick::from_seconds_f64(seconds);
+            for scale in [1.0, 0.5] {
+                let mut bare = p.clone();
+                bare.comp_mut(cid).unwrap().layers = vec![edge.clone(), bg.clone()];
+                let before = render_frame(&bare, cid, t, scale);
+                let mut full = p.clone();
+                full.comp_mut(cid).unwrap().layers[0].track_matte = None;
+                let blurred = render_frame(&full, cid, t, scale);
+                let mut mp = p.clone();
+                matte.switches.video = true;
+                mp.comp_mut(cid).unwrap().layers = vec![matte.clone()];
+                let coverage = render_frame(&mp, cid, t, scale);
+                let opts = crate::RenderOpts { scale, backend: crate::Backend::Cpu, ..Default::default() };
+                let mut r = crate::Renderer::new(&p, &crate::NoFootage, opts);
+                r.cache = Some(&cache);
+                let actual = r.comp_frame_cpu(cid, t);
+                let mut changed = 0;
+                for (((a, b), f), m) in actual.data.iter().zip(&before.data).zip(&blurred.data).zip(&coverage.data) {
+                    let k = match kind {
+                        MatteKind::Alpha => m[3],
+                        MatteKind::AlphaInverted => 1.0 - m[3],
+                        MatteKind::Luma => effectcraft_color::luminance(m[0], m[1], m[2]),
+                        MatteKind::LumaInverted => 1.0 - effectcraft_color::luminance(m[0], m[1], m[2]),
+                    };
+                    for c in 0..4 {
+                        let expected = b[c] + (f[c] - b[c]) * k;
+                        assert!((a[c] - expected).abs() < 1e-6, "{kind:?} at {seconds}s scale {scale}: {a:?} vs {expected}");
+                        if k == 0.0 {
+                            assert_eq!(a[c], b[c], "outside the matte must stay unchanged");
+                        }
+                    }
+                    changed += usize::from((a[0] - b[0]).abs() > 0.001);
+                }
+                assert!(changed > 0, "the blur must affect pixels inside its coverage");
+            }
+        }
+    }
+}
+
+#[test]
 fn shape_layer_draws_fill_and_stroke() {
     let (mut p, cid, comp) = setup();
     let mut l = build::layer(&mut p, &comp, "Shape Layer 1", LayerSource::Shape, (200, 100), None);
